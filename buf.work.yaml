@@ -1,0 +1,7 @@
+version: v1
+directories:
+  - buildless
+  - third_party/bazel
+  - third_party/google
+  - third_party/microsoft
+
