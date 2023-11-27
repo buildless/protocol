@@ -1,0 +1,338 @@
+syntax = "proto3";
+
+package ContentStore.Grpc;
+
+// NOTE(jubayard, 09/10/2019): the naming required for backwards-compatibility. Since the service name is part of the
+// wire format for gRPC calls, we can't simply remove old services yet, or:
+//  - Clients using the old bits won't connect to a new server (i.e. partial deployment)
+//  - Clients using the new bits won't connect to an old server (i.e. CI validation, partial deployment)
+// Will fail claiming that methods are undefined. This can and will fail builds, because the build won't connect to
+// CASaaS at all.
+
+// Defines an interface of a cache server
+service ContentServer {
+    rpc Hello(HelloRequest) returns (HelloResponse) {}
+
+    rpc GetStats(GetStatsRequest) returns (GetStatsResponse) {}
+    
+    rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse) {}
+
+    rpc Pin(PinRequest) returns (PinResponse) {}
+
+    rpc PinBulk(PinBulkRequest) returns (PinBulkResponse) {}
+
+    rpc PlaceFile(PlaceFileRequest) returns (PlaceFileResponse) {}
+
+    rpc PutFile(PutFileRequest) returns (PutFileResponse) {}
+
+    rpc ShutdownSession(ShutdownRequest) returns (ShutdownResponse) {}
+
+    rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse) {}
+
+    rpc RemoveFromTracker(RemoveFromTrackerRequest) returns (RemoveFromTrackerResponse) {}
+
+    rpc CopyFile(CopyFileRequest) returns (stream CopyFileResponse) {}
+
+    rpc PushFile(stream PushFileRequest) returns (stream PushFileResponse) {}
+
+    rpc CheckFileExists(ExistenceRequest) returns (ExistenceResponse) {}
+
+    rpc Delete(DeleteContentRequest) returns (DeleteContentResponse) {}
+    
+    rpc RequestCopyFile(RequestCopyFileRequest) returns (RequestCopyFileResponse) {}
+
+    rpc AddOrGetContentHashList(AddOrGetContentHashListRequest) returns (AddOrGetContentHashListResponse) {}
+
+    rpc GetContentHashList(GetContentHashListRequest) returns (GetContentHashListResponse) {}
+
+    rpc GetSelectors(GetSelectorsRequest) returns (GetSelectorsResponse) {}
+
+    rpc IncorporateStrongFingerprints(IncorporateStrongFingerprintsRequest) returns (IncorporateStrongFingerprintsResponse) {}
+}
+
+// Headers
+message RequestHeader {
+    int32 SessionId = 1;
+    string TraceId = 2;
+    int32 UrgencyHint = 3;
+}
+
+message ResponseHeader {
+    bool Succeeded = 1;
+    int32 Result = 2;
+    string ErrorMessage = 3;
+    string Diagnostics = 4;
+    int64 ServerReceiptTimeUtcTicks = 5;
+}
+
+// Requests/Responses
+
+// Hello
+message HelloRequest {
+}
+
+message HelloResponse {
+    bool Success = 1;
+    int32 Capabilities = 2;
+}
+
+// GetStats
+message GetStatsRequest {
+}
+
+message GetStatsResponse {
+    bool Success = 1;
+    map<string, int64> Statistics = 2;
+}
+
+// CreateSession
+message CreateSessionRequest {
+    string TraceId = 1;
+    string CacheName = 2;
+    string SessionName = 3;
+    int32 ImplicitPin = 4;
+    int32 Capabilities = 5;
+    string SerializedConfig = 6;
+    string Pat = 7;
+}
+
+message CreateSessionResponse {
+    int32 SessionId = 1;
+    string ErrorMessage = 2;
+    string TempDirectory = 3;
+}
+
+// Pin
+message PinRequest {
+    RequestHeader Header = 1;
+    int32 HashType = 2;
+    bytes ContentHash = 3;
+}
+
+message PinResponse {
+     ResponseHeader Header = 1;
+     PinResponseInfo Info = 2;
+}
+
+message PinResponseInfo {
+    int64 ContentSize = 1;
+}
+
+// PinBulk
+message PinBulkRequest {
+    RequestHeader Header = 1;
+    repeated ContentHashAndHashTypeData Hashes = 2;
+}
+
+message PinBulkResponse {
+    map<int32, ResponseHeader> Header = 1;
+    repeated PinResponseInfo Info = 2;
+}
+
+// PlaceFile
+message PlaceFileRequest {
+    RequestHeader Header = 1;
+    int32 HashType = 2;
+    bytes ContentHash = 3;
+    string Path = 4;
+    int32 FileAccessMode = 5;
+    int32 FileReplacementMode = 6;
+    int32 FileRealizationMode = 7;
+}
+
+message PlaceFileResponse {
+    ResponseHeader Header = 1;
+    int64 ContentSize = 2;
+    int64 LastAccessTime = 3;
+    int32 MaterializationSource = 4;
+}
+
+// PutFile
+message PutFileRequest {
+    RequestHeader Header = 1;
+    int32 HashType = 2;
+    bytes ContentHash = 3;
+    string Path = 4;
+    int32 FileRealizationMode = 5;
+}
+
+message PutFileResponse {
+    ResponseHeader Header = 1;
+    int32 HashType = 2;
+    bytes ContentHash = 3;
+    int64 ContentSize = 4;
+    optional bool AlreadyInCache = 5;
+}
+
+// Shutdown
+message ShutdownRequest {
+    RequestHeader Header = 1;
+}
+
+message ShutdownResponse {
+}
+
+// Heartbeat
+message HeartbeatRequest {
+    RequestHeader Header = 1;
+}
+
+message HeartbeatResponse {
+    ResponseHeader Header = 1;
+}
+
+// RemoveFromTracker
+message RemoveFromTrackerRequest {
+    string TraceId = 1;
+}
+
+message RemoveFromTrackerResponse {
+    ResponseHeader Header = 1;
+    int64 FilesEvicted = 2; // Not used anymore. Left for backward compat reasons.
+}
+
+// CopyFile
+message CopyFileRequest {
+    string traceId = 1;
+    int32 hashType = 2;
+    bytes contentHash = 3;
+    int64 offset = 4;
+    CopyCompression compression = 5;
+    bool failFastIfBusy = 6;
+}
+
+message CopyFileResponse {
+    bytes content = 1;
+    int64 index = 2;
+    ResponseHeader Header = 3;
+}
+
+enum CopyCompression {
+    none = 0;
+    gzip = 1;
+}
+
+// PushFile
+message PushFileRequest {
+    bytes content = 1;
+}
+
+message PushFileResponse {
+    ResponseHeader Header = 1;
+}
+
+// RequestCopyFile
+message RequestCopyFileRequest {
+    string traceId = 1;
+    int32 hashType = 2;
+    bytes contentHash = 3;
+}
+
+message RequestCopyFileResponse {
+    ResponseHeader Header = 1;
+}
+
+// CheckFileExists
+message ExistenceRequest {
+    string traceId = 1;
+    int32 hashType = 2;
+    bytes contentHash = 3;
+}
+
+message ExistenceResponse {
+    ResponseHeader Header = 1;
+}
+
+// Delete
+message DeleteContentRequest {
+    string traceId = 1;
+    int32 hashType = 2;
+    bytes contentHash = 3;
+    bool deleteLocalOnly = 4;
+}
+
+message DeleteContentResponse {
+    ResponseHeader header = 1;
+    int32 result = 2;
+    int64 contentSize = 3;
+    map<string, ResponseHeader> deleteResults = 4;
+}
+
+// AddOrGetContentHashList
+message AddOrGetContentHashListRequest {
+    RequestHeader Header = 1;
+    StrongFingerprintData Fingerprint = 2;
+    ContentHashListWithDeterminismData HashList = 3;
+}
+
+message AddOrGetContentHashListResponse {
+    ResponseHeader Header = 1;
+    ContentHashListWithDeterminismData HashList = 2;
+}
+
+// GetContentHashList
+message GetContentHashListRequest {
+    RequestHeader Header = 1;
+    StrongFingerprintData Fingerprint = 2;
+}
+
+message GetContentHashListResponse {
+    ResponseHeader Header = 1;
+    ContentHashListWithDeterminismData HashList = 2;
+}
+
+// GetSelectors
+message GetSelectorsRequest {
+    RequestHeader Header = 1;
+    bytes WeakFingerprint = 2;
+    int32 level = 3;
+}
+
+message GetSelectorsResponse {
+    ResponseHeader Header = 1;
+    repeated SelectorData Selectors = 2;
+    bool HasMore = 3;
+}
+
+// IncorporateStrongFingerprints
+message IncorporateStrongFingerprintsRequest {
+    RequestHeader Header = 1;
+    repeated StrongFingerprintData StrongFingerprints = 2;
+}
+
+message IncorporateStrongFingerprintsResponse {
+    ResponseHeader Header = 1;
+}
+
+
+// Common data types
+
+message ContentHashAndHashTypeData {
+    int32 HashType = 1;
+    bytes ContentHash = 2;
+}
+
+message StrongFingerprintData {
+    bytes WeakFingerprint = 1;
+    SelectorData Selector = 2;
+}
+
+message CacheDeterminismData {
+    bytes Guid = 1;
+    int64 ExpirationUtc = 2;
+}
+
+message ContentHashListWithDeterminismData {
+    CacheDeterminismData CacheDeterminism = 1;
+    ContentHashListData ContentHashList = 2;
+}
+
+message ContentHashListData {
+    repeated ContentHashAndHashTypeData ContentHashes = 1;
+    bytes Payload = 2;
+}
+
+message SelectorData {
+    ContentHashAndHashTypeData ContentHash = 1;
+    bytes Output = 2;
+}
