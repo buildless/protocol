@@ -21,4 +21,4 @@ You can use this repository via [Buf][7].
 [4]: https://bazel.build
 [5]: ./third_party/microsoft
 [6]: https://github.com/microsoft/BuildXL
-[7]: https://buf.build/buildless/spec
+[7]: https://buf.build/buildless/protocol
