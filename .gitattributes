@@ -1,0 +1,2 @@
+*.proto         text diff=protobuf linguist-detectable
+*.fbs         text linguist-detectable
