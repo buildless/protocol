@@ -1,3 +1,7 @@
 version: v1
 
 name: buf.build/googleapis/bytestream
+
+deps:
+  - buf.build/googleapis/googleapis:cc916c31859748a68fd229a3c8d7a2e8
+

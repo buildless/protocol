@@ -60,3 +60,4 @@ deps:
   - buf.build/envoyproxy/protoc-gen-validate
   - buf.build/googleapis/googleapis:cc916c31859748a68fd229a3c8d7a2e8
   - buf.build/grpc/grpc
+
