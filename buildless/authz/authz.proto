@@ -1,0 +1,65 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+/* Provides authorization-related models and enumerations; authorization in Buildless happens via a combination of RBAC
+ * and policy-driven grants.
+ *
+ * **Note:** Because common objects in Buildless' model are not versioned, records should only be placed here which
+ *           outlive individual API versions. Care must be exercised to maintain forward and backward compatibility.
+ */
+package buildless.authz;
+
+option cc_enable_arenas = true;
+option go_package = "github.com/elide-dev/buildless;buildless.api";
+option java_multiple_files = true;
+option java_package = "cloud.elide.cache.proto.api";
+option java_string_check_utf8 = true;
+option optimize_for = SPEED;
+
+// ## Privilege Levels
+//
+// Specifies API-oriented privilege levels which map to generic permission levels, and which are mapped to users based
+// on roles and rendered policies.
+enum PrivilegeLevel {
+  // Unspecified or unrecognized privilege level; this sentinel value is used when decoding an unrecognized enumeration
+  // case, such as a backwards-incompatible value. Regular application code should not use this.
+  PRIVILEGE_LEVEL_UNSPECIFIED = 0;
+
+  // Describes an API key which is safe to publish publicly on the internet, for example, on a public web-page, or in
+  // the README of a public source repository.
+  PUBLISHABLE = 1;
+
+  // Describes an API key which is considered private and should be kept secure, but only grants read-only access to
+  // non-sensitive data within a given tenant or user account scope.
+  READ_ONLY = 20;
+
+  // Describes an API key which is considered private and should be kept secure, and additionally allows non-sensitive
+  // write access (data, not settings).
+  READ_WRITE = 30;
+
+  // Describes an API key which is considered private and should be kept secure, and allows all privileges associated
+  // with `READ_WRITE`, plus destructive actions.
+  READ_WRITE_DELETE = 40;
+
+  // Describes an API key which is privileged to access billing records and settings, and to make payments on behalf of
+  // a customer or tenant account.
+  BILLING = 75;
+
+  // Describes an API key which is privileged to access tech or IT management functions, such as SCIM, SSO, and other
+  // sensitive settings.
+  TECH = 80;
+
+  // Describes an API key which is fully privileged and should be kept secure and private. This key can perform any
+  // action via the API on behalf of a given user or tenant account.
+  ADMIN = 99;
+}

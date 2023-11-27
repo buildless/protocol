@@ -1,0 +1,52 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+package buildless.usage;
+
+import "buildless/usage/quota.proto";
+import "elide/model/model.proto";
+import "google/api/field_behavior.proto";
+
+// ## Metered Usage
+//
+// Describes current usage state for a given meter. Usage state encloses the amount of usage over a given period of time
+// or action. Usage state `MAY` be calculated on a regular (timed) basis or in real-time, depending on the metric in
+// question.
+//
+// Metered usage is blind to the concept of quotas; usage exists purely on the basis of user activity. Quota information
+// is combined with metered usage to determine whether or not a user is in violation of a quota. See `Meter` for a full
+// record implementing both metered usage and quota information.
+message MeteredUsage {
+  option (elide.model.role) = WIRE;
+
+  // Specifies the amount used for a given metered metric. If no value is present, `0` should be assumed.
+  uint64 used = 1 [
+    (google.api.field_behavior) = OPTIONAL,
+    (google.api.field_behavior) = OUTPUT_ONLY
+  ];
+}
+
+// ## Meter
+//
+// Describes a metered usage metric at a moment in time, including applicable quota state information. The amount of
+// usage and window are provided by the `MeteredUsage` record, and current quota state (and allocations) are provided by
+// the `QuotaState` record.
+message Meter {
+  option (elide.model.role) = WIRE;
+
+  // Specifies quota information related to this meter.
+  QuotaState quota = 1;
+
+  // Specifies usage state and windowing info for this meter.
+  MeteredUsage usage = 2;
+}

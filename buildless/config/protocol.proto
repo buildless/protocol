@@ -1,0 +1,67 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+package buildless.config;
+
+option cc_enable_arenas = true;
+option go_package = "github.com/elide-dev/buildless/config;config";
+option java_multiple_files = true;
+option java_package = "cloud.elide.cache.proto";
+option java_string_check_utf8 = true;
+option optimize_for = SPEED;
+
+// ## Cache Protocols
+//
+// Enumerates cache transport protocols which are supported by the Buildless service and family of tools; some of these
+// are supported natively by tooling supported by Buildless.
+enum CacheProtocol {
+  // ### Cache Protocol: Auto.
+  //
+  // Specifies auto-selection of cache transport protocols. This is the default setting. In most cases, the default
+  // protocol is `HTTP_PLAIN`.
+  CACHE_PROTOCOL_AUTO = 0;
+
+  // ### Cache Protocol: HTTP.
+  //
+  // Specifies a standard HTTP GET/PUT cache transport protocol. This is the protocol supported by default in CCache,
+  // Bazel, Gradle, and others. Also referred to as WebDAV in some circumstances.
+  HTTP_PLAIN = 1;
+
+  // ### Cache Protocol: gRPC.
+  //
+  // Use the gRPC Bytestream API specified by Google as part of the Bazel caching APIs.
+  GRPC_BYTESTREAM = 2;
+}
+
+// ## Cache Protocols: Tool-specific
+//
+// Enumerates cache transport protocols which are supported by specific tools.
+enum ToolCacheProtocol {
+  // ### Cache Protocol: Generic HTTP.
+  //
+  // Specifies a standard HTTP GET/PUT cache transport protocol. This is the protocol supported by default in CCache,
+  // Bazel, Gradle, and others. Also referred to as WebDAV in some circumstances.
+  GENERIC = 0;
+
+  // ### Cache Protocol: Bazel.
+  //
+  // Specifies use of Bazel's Remote APIs for action caching and content addressable storage. This protocol is generally
+  // only supported by Bazel.
+  BAZEL_REMOTE = 2;
+
+  // ### Cache Protocol: TurboRepo.
+  //
+  // TurboRepo provides its own proprietary cache protocol. This is a special value which should only be used when using
+  // a tailor-made client.
+  TURBO = 3;
+}

@@ -1,0 +1,588 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+/* # Projects
+ *
+ * Defines datastructures which model the concept of "projects" within Buildless. Projects are containers for cached
+ * build artifacts, and are the primary unit of organization within Buildless; each project has only one owner, which
+ * can be any account scope (so, an org or an individual user).
+ *
+ * ## Project Visibility
+ *
+ * By default, projects have a "visibility mode" of `INTERNAL`. This lets any authorized user within the owning account
+ * scope access the data associated with the project.
+ *
+ * Projects can be made `PUBLIC`, which allows anybody to interact with the project's associated data, even without any
+ * credentials at all. This is useful for open-source projects, or for projects which are intended to leverage a shared
+ * cache with users who are not onboarded to Buildless.
+ *
+ * ## Project Isolation
+ *
+ * By default, projects "share" objects with their owning account scope. This means that any object which is uploaded to
+ * the project is visible to all users within the owning account scope, and, conversely, that all objects within the
+ * owning account scope are visible to the project.
+ *
+ * In this operating mode, objects which transit through a "project" (in the sense that they are fetched or created
+ * through that project), count toward analytics, reporting, and so on. Access generally follows the behaviors specified
+ * by the project's visibility mode and higher-level tenant policies.
+ *
+ * When a project is "isolated," this behavior adjusts in different ways: propagation of writes up to the parent account
+ * scope can be withheld, or access can be withheld to the upper scope for reads. This is useful for projects which are
+ * temporary, sensitive, or which are intended to be used as a "sandbox" for experimentation, and consequently should
+ * not affect writes or reads (as applicable) within the parent account scope.
+ */
+package buildless.projects;
+
+import "buildless/accounts/user.proto";
+import "buildless/authz/apikeys.proto";
+import "buildless/code/repo.proto";
+import "buildless/projects/project-key.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/timestamp.proto";
+import "validate/validate.proto";
+
+option cc_enable_arenas = true;
+option go_package = "github.com/elide-dev/buildless/projects;project";
+option java_multiple_files = true;
+option java_package = "cloud.elide.cache.proto.projects";
+option java_string_check_utf8 = true;
+option optimize_for = SPEED;
+
+// ## Project Visibility
+//
+// Enumerates supported modes for a project's visibility. Project visibility is a top-level setting which determines the
+// default behavior for access control around a project's associated data. See each visibility mode for more information
+// about how it behaves.
+enum Visibility {
+  // ### Internal
+  //
+  // The default visibility mode for projects. This mode allows any authorized user within the owning account scope to
+  // read or write to the cache freely, subject to other applicable policy mechanisms. If no explicit mode is declared
+  // for a project, it is considered `INTERNAL`.
+  INTERNAL = 0;
+
+  // ### Private
+  //
+  // This mode allows only the project's owner to read or write to the cache. This is useful for projects which are
+  // private to a user or considered temporary. Additional policies may be applied to allow other users to access caches
+  // associated with private projects.
+  PRIVATE = 1;
+
+  // ### Public
+  //
+  // This mode allows anybody to read from the cache. This is useful for open-source projects, or for projects which
+  // intend to leverage a shared cache between developers and end-users which are not onboarded to Buildless. Writing
+  // to the cache is never allowed publicly.
+  PUBLIC = 99;
+}
+
+// ## Project Isolation
+//
+// Enumerates supported modes for a project's isolation behavior; a project's isolation settings govern how (or if) read
+// and write operations interact with the project's parent scope. In the default operating mode, project writes
+// propagate to the parent scope, and reads default from the parent scope (with higher-level policies applying).
+//
+// This default operating mode can be adjusted in various ways by other modes defined here. The default mode is referred
+// to as `OPEN` mode.
+enum Isolation {
+  // ### Open
+  //
+  // The default isolation mode for projects. In this mode, writes to the project propagate to the parent scope, and
+  // reads default from the parent scope (with higher-level policies applying).
+  OPEN = 0;
+}
+
+// ## Project Display
+//
+// Specifies settings which govern how a project is displayed or reported on. These settings are used by UIs and by the
+// Buildless system to present information about a project to users.
+message DisplayOptions {
+  // Specifies the color that should be used to represent this project in UIs. This is used to provide a visual hint
+  // which is consistent for a project in various reports. The user can provide an explicit color, or, otherwise, a
+  // consistent one is generated based on the project's name or position in the chart.
+  //
+  // At the time of this writing, only web-safe colors in hex-notation are supported.
+  string color = 1 [
+    (google.api.field_behavior) = OPTIONAL,
+    (validate.rules).string = {
+      min_len: 7,
+      max_len: 7,
+      pattern: "^#[0-9a-fA-F]{6}$"
+    }
+  ];
+
+  // Specifies whether to include this project in reports. This is useful to disable for projects which are temporary,
+  // or which are experimental in nature.
+  bool reports = 2 [
+    (google.api.field_behavior) = OPTIONAL
+  ];
+
+  // Specifies whether to include this project in the list of favorites. This is useful to enable for projects which are
+  // frequently accessed. Marking a project as a "favorite" may promote it in UI and reporting circumstances.
+  bool favorite = 3 [
+    (google.api.field_behavior) = OPTIONAL
+  ];
+}
+
+// ## Project Repository: Reference
+//
+// Models a linkage established between a Buildless project and a source code repository, powered by a system such as
+// Git, Subversion, or Mercurial. This linkage is used to enable features like automatic cache population, and to tie
+// commits to the cached objects which sustain related builds.
+message ProjectRepositoryReference {
+  // Specifies the source control system in use. Systems include Git, Subversion, and Mercurial.
+  buildless.code.SourceControlSystem system = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).enum.defined_only = true
+  ];
+
+  // Specifies information about the source repository under linkage.
+  buildless.code.RepositoryReference repository = 2 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).message.required = true
+  ];
+
+  // Specifies the source control provider, as applicable. Providers include systems like GitHub.
+  buildless.code.RepositoryProvider provider = 3 [
+    (google.api.field_behavior) = OPTIONAL,
+    (validate.rules).enum.defined_only = true
+  ];
+}
+
+// ## Project Repository
+//
+// Models a source control repository which is linked to a Buildless project. Source control repositories are held in
+// their own records underneath projects to allow for linkages to multiple repositories for one project.
+message ProjectRepository {
+  // ## Project Repository: Status
+  //
+  // Enumerates statuses which can be inhabited by a project repository. These statuses indicate the current state of the
+  // project as it relates to a given source repository.
+  enum Status {
+    // Status is unknown. This value typically should not be used from regular code, and may signify a backward-
+    // incompatible value.
+    STATUS_UNKNOWN = 0;
+
+    // The repository is currently pending linkage. The repository has been configured, but must be linked to the
+    // matching repository on the provider's side. For example, this may indicate that the user must add the Buildless
+    // GitHub app to their repo.
+    PENDING = 1;
+
+    // The system is currently working with the repository under reference. This status may be used in various UI
+    // circumstances if active work is underway.
+    WORKING = 2;
+
+    // Indicates that an error occurred in the background, while processing code or events from this repository, or
+    // while setting it up.
+    ERROR = 3;
+
+    // Indicates that the repository is properly configured, linked, and ready to use.
+    ACTIVE = 4;
+  }
+
+  // ## Project Repository: Draft
+  //
+  // Specifies a "draft" repository which is being created (via linkage) to a Buildless project.
+  message Draft {
+    // Short name which uniquely identifies this repository record. Provided by the user explicitly or generated by the
+    // server at the time a project repository is created.
+    string name = 1 [
+      (google.api.field_behavior) = REQUIRED,
+      (validate.rules).string = {
+        min_len: 3,
+        max_len: 64,
+        pattern: '^[a-z][a-z0-9-_/:]{2,64}[a-z0-9]$',
+      }
+    ];
+
+    // Specifies the source control system in use. Systems include Git, Subversion, and Mercurial.
+    buildless.code.SourceControlSystem system = 2 [
+      (google.api.field_behavior) = REQUIRED,
+      (validate.rules).enum.defined_only = true
+    ];
+
+    // Specifies information about the source repository under linkage.
+    buildless.code.RepositoryReference repository = 3 [
+      (google.api.field_behavior) = REQUIRED,
+      (validate.rules).message.required = true
+    ];
+
+    // Specifies the source control provider, as applicable. Providers include systems like GitHub.
+    buildless.code.RepositoryProvider provider = 4 [
+      (google.api.field_behavior) = OPTIONAL
+    ];
+  }
+
+  // ## Project Repository: Update
+  //
+  // Specifies the structure of fields which can be updated within a linked project repository.
+  message Update {
+    // Whether the repository should be enabled at all within the Buildless service.
+    bool enabled = 1;
+  }
+
+  // Unique ID provisioned for this repository record.
+  string uuid = 1 [
+    (google.api.field_behavior) = OUTPUT_ONLY,
+    (google.api.field_behavior) = IMMUTABLE,
+    (validate.rules).string = {
+      min_len: 32,
+      max_len: 32,
+      pattern: '^[a-f0-9]{8}(?:-[a-f0-9]{4}){4}[a-f0-9]{8}$',
+    }
+  ];
+
+  // Short name which uniquely identifies this repository record. Provided by the user explicitly or generated by the
+  // server at the time a project repository is created.
+  string name = 2 [
+    (google.api.field_behavior) = OUTPUT_ONLY,
+    (google.api.field_behavior) = IMMUTABLE,
+    (validate.rules).string = {
+      min_len: 3,
+      max_len: 32,
+      pattern: '^[a-z][a-z0-9-_/:]{2,64}[a-z0-9]$',
+    }
+  ];
+
+  // Current status of this project repository.
+  Status status = 3 [
+    (google.api.field_behavior) = OUTPUT_ONLY
+  ];
+
+  // Specifies the source control system in use. Systems include Git, Subversion, and Mercurial.
+  buildless.code.SourceControlSystem system = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies information about the source repository under linkage.
+  buildless.code.RepositoryReference repository = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies the source control provider, as applicable. Providers include systems like GitHub.
+  buildless.code.RepositoryProvider provider = 6 [
+    (google.api.field_behavior) = OUTPUT_ONLY,
+    (google.api.field_behavior) = OPTIONAL
+  ];
+
+  // Whether the repository is currently enabled within the Buildless service. If the repository is disabled, it is not
+  // consulted for cache population, and events are not processed.
+  bool enabled = 7;
+
+  // Specifies information about the user who last updated this project repository.
+  buildless.accounts.UserReference updated_by = 96 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies the last time this project repository was updated. Changes with each update to the record.
+  google.protobuf.Timestamp updated_at = 97 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies information about the user who created this project repository. If the record was created by the system,
+  // this field is not filled in.
+  buildless.accounts.UserReference created_by = 98 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies the moment at which this record was originally created. Does not change over the lifecycle of the record.
+  google.protobuf.Timestamp created_at = 99 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// ## Project Credentials
+//
+// Describes credentials which are provisioned within the scope of a project. These credentials are used to authenticate
+// automated agents like CI builds, and can be inlined within the project safely without leaking user privileges.
+//
+// Some projects may choose to inline credentials if source code is public and they want to avoid onboarding end-users
+// (in which case, a `PUBLIC` project is used), or if the project is private and the user wants to avoid managing
+// credentials separately.
+message Credentials {
+  // ### Project API Key
+  //
+  // Describes an API key provisioned under the scope of a Buildless project. When a project is created, an API key is
+  // issued which identifies the project and enables certain access or permissions based on project settings. Such keys
+  // *only* grant access to objects accessible through the project.
+  message ProjectApiKey {
+    // Describes information for the primary API key in this project API key bundle. The "primary" API key is used to
+    // authorize regular operations performed against Buildless APIs, and the main Buildless service.
+    buildless.authz.ApiKeyInfo apikey = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Describes information for the events API key in this project API key bundle. The "events" key is a special API
+    // key with write-only privileges, which can be used to safely write telemetry (only), even from anonymous users.
+    buildless.authz.ApiKeyInfo events = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Describes information for the hooks key in this project API key bundle; the "hooks" key is used as a shared
+    // secret which can authenticate webhook payloads delivered within the scope of the applicable project.
+    buildless.authz.ApiKeyInfo hooks = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Display description which is listed along with this key; this is a user-provided value which may be updated
+    // after the key has been provisioned.
+    string description = 4 [(google.api.field_behavior) = OPTIONAL];
+
+    // Specifies whether this key has been revoked. Revoked keys cannot be used to authenticate requests. Keys can be
+    // revoked at any time by any authorized user with requisite permissions.
+    bool revoked = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Specifies information about the user who revoked this key. This field is only filled in if `revoked` is set to
+    // `true`, and only if the key was revoked by a user, rather than the system itself.
+    buildless.accounts.UserReference revoked_by = 6 [
+      (google.api.field_behavior) = OUTPUT_ONLY,
+      (google.api.field_behavior) = OPTIONAL
+    ];
+
+    // Specifies the moment at which this key was revoked. This field is only filled in if `revoked` is set to `true`.
+    google.protobuf.Timestamp revoked_at = 7 [
+      (google.api.field_behavior) = OUTPUT_ONLY,
+      (google.api.field_behavior) = OPTIONAL
+    ];
+
+    // Specifies the moment at which this key expires. This field is only filled in if the key has an expiration time.
+    // If a key expires due to system activity (a normal expiration period elapses), the `revoked` flag is set with no
+    // `revoked_by` value, indicating that the Buildless service retired the key.
+    google.protobuf.Timestamp expires_at = 8 [
+      (google.api.field_behavior) = OUTPUT_ONLY,
+      (google.api.field_behavior) = OPTIONAL
+    ];
+
+    // Specifies information about the user who last updated this key.
+    buildless.accounts.UserReference updated_by = 96 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Specifies the last time this key was updated. Changes with each update to the key record.
+    google.protobuf.Timestamp updated_at = 97 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Specifies information about the user who created this key. If the key was created by the system, this field is
+    // not filled in. The initial key for a project is created by the system.
+    buildless.accounts.UserReference created_by = 98 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Specifies the moment at which this key was originally created. Does not change over the lifecycle of the key.
+    google.protobuf.Timestamp created_at = 99 [(google.api.field_behavior) = OUTPUT_ONLY];
+  }
+
+  // ### Project Token
+  //
+  // Describes a token issued under the scope of a Buildless project; project tokens are inherently ephemeral, and are
+  // typically used in automated scenarios like continuous integration or deployment bots. Project tokens are issued via
+  // the exchange of an API key or user token for a project token.
+  //
+  // For example, project tokens may be issued from GitHub Actions workflow tokens, and then used during a build to
+  // authenticate to the cache. This allows the cache to identify the project and apply access controls, while avoiding
+  // the need to manage credentials separately, or statically list them within the repository configuration or source
+  // code material.
+  message ProjectToken {
+    // Unique ID identifying this token; this value is generated by the server at the time the token is issued. It does
+    // not change for the lifecycle of the token.
+    string uuid = 1 [
+      (google.api.field_behavior) = OUTPUT_ONLY,
+      (google.api.field_behavior) = IMMUTABLE
+    ];
+
+    // Display description which is listed along with this key; this is a user-provided or server-generated value which
+    // describes how the token was issued.
+    string description = 2 [
+      (google.api.field_behavior) = OUTPUT_ONLY,
+      (google.api.field_behavior) = OPTIONAL,
+      (google.api.field_behavior) = IMMUTABLE
+    ];
+  }
+
+  // Describes the set of API keys issued for this project; one always exists, having been provisioned at the time the
+  // project is created.
+  repeated ProjectApiKey apikey = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Describes the project tokens most recently issued for this project; these are only present if the project has been
+  // used to issue tokens. Tokens expire on a regular interval and after that time are not listed here.
+  repeated ProjectToken token = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// ## Project
+//
+// Describes the top-level structure of a Buildless Project. Projects are the primary unit of organization within the
+// remote build caching and tooling system. Each project has a unique key and an assigned `name` value; the unique key
+// is generated by the server, and the name is assigned by the user.
+//
+// The `name` of the cache is used to reference the cache from configurations, from URLs, and over the API. The `id` is
+// mainly for backend use only.
+//
+// ### Project Ownership
+//
+// Each project has a single owner, which is an account scope. This can be an organization or an individual user. The
+// owner always has full access to data held by the project.
+//
+// ### Project Settings
+//
+// Each project has a set of settings which control how the project behaves. These settings are mutable, and can be
+// adjusted by the owner of the project, or any user with sufficient permissions for the owning account scope (for
+// example, both org owners and admins can adjust project settings for an org-owned project).
+//
+// Project settings structure is designed to evolve over time, subject to safe protocol evolution rules stipulated by
+// Protocol Buffers. Values like the project's visibility mode are stored in the top-level settings message, while other
+// settings are stored in nested messages. This allows for new settings to be added without breaking existing clients.
+//
+// ### Draft Objects
+//
+// Projects can be created using the `Draft` sub-record, which applies validation rules and property structure for a
+// project which hasn't been persisted yet. After submission via the relevant API, a `Project` is returned. Updates can
+// similarly be applied via the `Update` sub-record.
+message Project {
+  // ## Project Settings
+  //
+  // Models project top-level settings. These settings apply to the project and all data it contains, regardless of the
+  // type of data or tool that uploaded it. Project settings are designed to be mutable, and can safely be updated over
+  // the lifecycle of the project.
+  message Settings {
+    // Describes the visibility mode for this project; this governs the default access controls which apply to the data
+    // held by the project. See the `Visibility` enum for more information about each mode.
+    Visibility visibility = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Describes the isolation mode for this project; this governs how (or if) read and write operations interact with
+    // the project's parent scope. See the `Isolation` enum for more information about each mode.
+    Isolation isolation = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Specifies display and reporting settings which apply to this project. Some of these settings can be overridden by
+    // user account-level preferences.
+    DisplayOptions display = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // ### Project Settings: Draft
+    //
+    // Models the structure of a project's settings when it is in a draft state. This is used when creating a new
+    // project, to apply proper validation logic.
+    message Draft {
+      // Desired initial visibility mode for this project; this governs the default access controls which apply to the
+      // data held by the project. See the `Visibility` enum for more information about each mode.
+      Visibility visibility = 1 [(google.api.field_behavior) = OPTIONAL];
+
+      // Desired initial isolation mode for this project; this governs how (or if) read and write operations interact
+      // with the project's parent scope. See the `Isolation` enum for more information about each mode.
+      Isolation isolation = 2 [(google.api.field_behavior) = OPTIONAL];
+
+      // Desired initial display and reporting settings which apply to this project. Some of these settings can be
+      // further customized by user account-level preferences.
+      DisplayOptions display = 3 [(google.api.field_behavior) = OPTIONAL];
+    }
+
+    // ### Project Settings: Update
+    //
+    // Describes updates to apply to the current suite of settings attached to a project. By default, project settings
+    // update operations are delta-based and require a specific version (for optimistic concurrency).
+    message Update {
+      // Specifies an updated visibility setting for a project. This governs the default access controls which apply to
+      // the data held by the project. See the `Visibility` enum for more information about each mode.
+      Visibility visibility = 1 [(google.api.field_behavior) = OPTIONAL];
+
+      // Desired initial isolation mode for this project; this governs how (or if) read and write operations interact
+      // with the project's parent scope. See the `Isolation` enum for more information about each mode.
+      Isolation isolation = 2 [(google.api.field_behavior) = OPTIONAL];
+
+      // Desired display and reporting settings which apply to this project. Some of these settings can be further
+      // customized by user account-level preferences.
+      DisplayOptions display = 3 [(google.api.field_behavior) = OPTIONAL];
+    }
+  }
+
+  // ## Project Draft
+  //
+  // Models the structure of a project when it is in a draft state. This is used when creating a new project, to apply
+  // validation logic and property structure (for example, input-only fields).
+  //
+  // Project drafts are submitted to the appropriate API endpoint under an authorized user's account. The account scope
+  // selected by the user is used when creating the project.
+  message Draft {
+    // Specifies the desired owner for the new project.
+    oneof owner {
+      // Specifies the current user as the owner for the new project.
+      bool self = 1 [(google.api.field_behavior) = IMMUTABLE];
+
+      // Specifies the name of the tenant organization which should own the new project.
+      string tenant = 2 [
+        (google.api.field_behavior) = IMMUTABLE,
+        (validate.rules).string = {
+          min_len: 3,
+          max_len: 32,
+          pattern: '^[a-z][a-z0-9-_]{2,32}[a-z0-9]$',
+        }
+      ];
+    }
+
+    // "Short name" to specify for a new project; this name will be used by default when referencing the project in
+    // configurations, URLs, and over the API. This name must be unique within the owning account scope.
+    string name = 3 [
+      (google.api.field_behavior) = REQUIRED,
+      (google.api.field_behavior) = IMMUTABLE,
+      (validate.rules).string = {
+        min_len: 3,
+        max_len: 32,
+        pattern: '^[a-z][a-z0-9-_]{2,32}[a-z0-9]$',
+      }
+    ];
+
+    // "Display name" to show as a label for the new project within UIs and when presenting lists of projects to users.
+    // The display name can be changed at any time.
+    string display_name = 4 [
+      (google.api.field_behavior) = OPTIONAL,
+      (validate.rules).string = {
+        min_len: 3,
+        max_len: 64,
+        pattern: '^[a-zA-Z0-9-_ :]{2,62}[a-z0-9]$',
+      }
+    ];
+
+    // Draft of active settings which should apply to the new project. See the `Settings.Draft` message for more about
+    // which fields are supported or required.
+    Settings.Draft settings = 10 [
+      (google.api.field_behavior) = REQUIRED,
+      (validate.rules).message.required = true
+    ];
+  }
+
+  // Key uniquely identifying this project. Project keys can carry a UUID or a name; when embedded in a `Project` record
+  // the `uuid` is provided, since `name` is available as a top-level field.
+  buildless.projects.ProjectKey key = 1 [
+    (google.api.field_behavior) = OUTPUT_ONLY,
+    (google.api.field_behavior) = IMMUTABLE
+  ];
+
+  // "Short name" assigned to this project. The short name is either provided by the user, or generated by the server,
+  // at the time the project is created. It cannot be changed throughout the lifecycle of the project. The short name is
+  // used to reference the project in configurations, URLs, and over the API.
+  string name = 2 [
+    (google.api.field_behavior) = OUTPUT_ONLY,
+    (google.api.field_behavior) = IMMUTABLE
+  ];
+
+  // "Display name" assigned to this project. The display name is provided by the user, and can be changed at any time.
+  // The display name is used to label the project within UIs and when presenting lists of projects to users.
+  string display_name = 3 [
+    (google.api.field_behavior) = OUTPUT_ONLY,
+    (google.api.field_behavior) = OPTIONAL
+  ];
+
+  // Effective settings which apply to the current project, and which govern how the project behaves. See the `Settings`
+  // message for more information about which setting fields are supported.
+  Settings settings = 10 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Whether this project is currently active. This is always `true` if the parent account is not suspended, and the
+  // project is not `archived` or `tombstoned`.
+  bool active = 11 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Whether this project is marked as "archived," in which case it is inactive. Projects in an archived state cannot be
+  // used for reads or writes.
+  bool archived = 12 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Whether this project is marked as "tombstoned," in which case it is scheduled for deletion. Projects which are
+  // tombstoned are always archived first.
+  bool tombstoned = 13 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies information about the user who last updated this project.
+  buildless.accounts.UserReference updated_by = 96 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies information about the user who created this project.
+  buildless.accounts.UserReference created_by = 97 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies the last time this project was updated. Changes with each update to the project record.
+  google.protobuf.Timestamp updated_at = 98 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies the moment at which this project was originally created. Does not change over the lifecycle of the
+  // project record.
+  google.protobuf.Timestamp created_at = 99 [(google.api.field_behavior) = OUTPUT_ONLY];
+}

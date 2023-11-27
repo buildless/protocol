@@ -1,0 +1,58 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+// # Cloud models
+// Provides records which define the shape of models related to cloud services.
+//
+// **Note:** Because common objects in Buildless' model are not versioned, records should only be placed here which
+//           outlive individual API versions. Care must be exercised to maintain forward and backward compatibility.
+package buildless.cloud;
+
+option cc_enable_arenas = true;
+option go_package = "github.com/elide-dev/buildless/cloud;cloud";
+option java_multiple_files = true;
+option java_package = "cloud.elide.cache.proto";
+option java_string_check_utf8 = true;
+option optimize_for = SPEED;
+
+// ## Cloud Provider
+//
+// Enumerates known cloud providers which can be specified in other records. This enumeration is non-exhaustive.
+enum CloudProvider {
+  // Unspecified or not-applicable value.
+  UNKNOWN_CLOUD_PROVIDER = 0;
+
+  // Amazon Web Services.
+  AWS = 1;
+
+  // Microsoft Azure.
+  AZURE = 2;
+
+  // Google Cloud Platform.
+  GCP = 3;
+
+  // Digital Ocean.
+  DIGITAL_OCEAN = 4;
+
+  // Linode.
+  LINODE = 5;
+
+  // Oracle Cloud.
+  ORACLE = 6;
+
+  // Fly.io.
+  FLY = 7;
+
+  // Local.
+  LOCAL = 8;
+}

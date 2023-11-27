@@ -1,0 +1,157 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+package buildless.service.v1;
+
+import "buildless/service/v1/expr.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/struct.proto";
+
+option cc_enable_arenas = true;
+option go_package = "github.com/elide-dev/buildless/service/v1;buildless_svc_v1";
+option java_multiple_files = true;
+option java_package = "cloud.elide.cache.proto.service.v1";
+option java_string_check_utf8 = true;
+option optimize_for = SPEED;
+
+// ## Query Options
+//
+// Specifies a combined set of generic query input parameters, including support for sort specifications, filter clauses
+// and features like pagination and output control. An exhaustive list of features supported by this model is provided
+// below.
+//
+// The Buildless API makes use of this model across multiple methods and multiple services. Some query options may only
+// be supported by a subset of methods. See specific method documentation for more info.
+message QueryOptions {
+  // Specifies a sort directive which should apply to a data query.
+  message Sort {
+    // Enumerates supported sort directions.
+    enum Direction {
+      // Default direction; implementation dependent. New code should prefer an explicit option.
+      DIRECTION_DEFAULT = 0;
+
+      // Ascending sort.
+      ASC = 1;
+
+      // Descending sort.
+      DESC = 2;
+    }
+
+    // Direction to apply with this sort directive.
+    Direction direction = 1;
+
+    // Field to apply this sort directive to.
+    string field = 2;
+  }
+
+  // Specifies a filter directive which should apply to a data query.
+  message Filter {
+    // Enumerates supported filter operators which can be used with structured filter declarations on a query.
+    enum Operator {
+      // Default/unrecognized operator: implementation specific. This value is also used to signify a backwards-
+      // incompatible value, and so it is recommended that new code use an explicit operator option.
+      OPERATOR_DEFAULT = 0;
+
+      // Operator: Equals.
+      EQ = 2;
+
+      // Operator: Not equals.
+      NEQ = 3;
+
+      // Operator: Less-than.
+      LT = 4;
+
+      // Operator: Less-than-or-equal-to.
+      LTE = 5;
+
+      // Operator: Greater-than.
+      GT = 6;
+
+      // Operator: Greater-than-or-equal-to.
+      GTE = 7;
+
+      // Operator: In/contains.
+      IN = 8;
+
+      // Operator: Not-in/Not-contains.
+      NIN = 9;
+
+      // Operator: Is-empty-or-null.
+      EMPTY = 10;
+
+      // Operator: Not-empty-or-null.
+      NOT_EMPTY = 11;
+    }
+
+    // Specifies the structure of a declarative property-based filter. Filters of this kind are used to omit records
+    // from a query where a given field does not satisfy a declared constraint.
+    message PropertyFilter {
+      // Property name against which this filter should apply.
+      string property = 1;
+
+      // Operator to apply with this filter value.
+      Operator operator = 2;
+
+      // Filter value to apply, as applicable.
+      google.protobuf.Value value = 3;
+    }
+
+    // Specifies how filtering should be performed for this entry.
+    oneof spec {
+      // Supplies an expression-based filter, using CEL (Common Expression Language).
+      buildless.service.v1.Expression expr = 1;
+
+      // Declares a property filter, based on structured inputs.
+      PropertyFilter prop = 2;
+    }
+  }
+
+  // Specifies a pagination directive which controls the record window to return.
+  message Pagination {
+    // Sets a limit value for the number of results returned within a single page.
+    uint32 limit = 1;
+
+    // Sets the desired page number.
+    uint32 page = 2;
+
+    // Sets an explicit offset; if specified, overrides `page`. If unspecified, calculated as `page * limit`.
+    uint32 offset = 3;
+  }
+
+  // Specifies an output directive which controls relationship expansion, property sub-setting, and so on.
+  message Output {
+    // Indicates that a given query should only return matching record keys.
+    bool keys_only = 1;
+
+    // Indicates that a given query should only return a count of matching records.
+    bool count = 2;
+
+    // Declares fields which should be included within the result-set payload.
+    google.protobuf.FieldMask mask = 3;
+
+    // Declares fields which should be hydrated (fetched/expanded).
+    google.protobuf.FieldMask hydrate = 4;
+  }
+
+  // Pagination control for the query.
+  Pagination page = 1;
+
+  // Sort directives for the query.
+  repeated Sort sort = 2;
+
+  // Filter directives for the query.
+  repeated Filter filter = 3;
+
+  // Output controls for the query.
+  Output out = 4;
+}

@@ -1,0 +1,140 @@
+/*
+ * Copyright © 2022, The Elide Framework Authors. All rights reserved.
+ *
+ * The Gust/Elide framework and tools, and all associated source or object computer code, except where otherwise noted,
+ * are licensed under the Zero Prosperity license, which is enclosed in this repository, in the file LICENSE.txt. Use of
+ * this code in object or source form requires and implies consent and agreement to that license in principle and
+ * practice. Source or object code not listing this header, or unless specified otherwise, remain the property of
+ * Elide LLC and its suppliers, if any. The intellectual and technical concepts contained herein are proprietary to
+ * Elide LLC and its suppliers and may be covered by U.S. and Foreign Patents, or patents in process, and are protected
+ * by trade secret and copyright law. Dissemination of this information, or reproduction of this material, in any form,
+ * is strictly forbidden except in adherence with assigned license requirements.
+ */
+
+/* Provides common records, enumerations, and definitions for the Buildless application. These objects are used in the
+ * Buildless API and the Buildless UI.
+ *
+ * **Note:** Because common objects in Buildless' model are not versioned, records should only be placed here which
+ *           outlive individual API versions. Care must be exercised to maintain forward and backward compatibility.
+ */
+namespace buildless;
+
+// Tenant
+//
+// Specifies an organization tenant record within Buildless. Organization tenants are the top-most level of user data
+// within the system. All user accounts are eligible to be members of a given tenant.
+//
+// Each tenant (also known as an "organization" or "team") has a unique set of identifiers, and within the scope of that
+// tenant, all organization data is owned. If a tenant is deactivated, all resources associated with that tenant are
+// henceforth inaccessible, and later scheduled for deletion. Settings, permissions, and analytics all roll up at the
+// top-most level of a tenant.
+//
+// See also: `User`, `Account`.
+table Tenant {}
+
+// Directory Provider
+//
+// Enumerates known providers which can be installed as a SCIM-based managed directory. Providers in this enumerate are
+// generally also identity providers, in addition to directory providers.
+enum DirectoryProvider {}
+
+// Account Provider
+//
+// Specifies identity or account providers which are integrated with Buildless. A user's primary identity originates
+// from one of these providers in every case.
+enum AccountProvider {}
+
+// User
+//
+// Specifies the structure of a user record within Buildless. Users are free-agent records which do not have any parent
+// record associated with them by default. Users may be members of one or more `Tenant` organizations, but also may not
+// be a member of any `Tenant`.
+//
+// Users are one kind of `Account` within Buildless, with the other being a `Tenant`. Anybody who logs into Buildless
+// gets a user record.
+table User {}
+
+//
+table Account {}
+
+// Version
+//
+// Specifies generic versioning information, in the style of Semantic Versioning or in a string.
+table Version {
+    // Semantic version, structurally expressed as numeric components.
+    semver: buildless.Version_.SemanticVersion;
+
+    // Arbitrary version string.
+    text: string;
+}
+
+namespace buildless.Tenant_;
+
+// Tenant Key
+//
+// Specifies the unique key material associated with a Buildless `Tenant` record. Tenants are stored by their numeric
+// `tenant_id` and `uuid`, both of which must be globally unique.
+table TenantKey {}
+
+// Tenant Branding
+//
+// Specifies customization/branding info for a given tenant. If supported, this information is used to customize the
+// UI for members of a given tenant.
+table TenantBranding {}
+
+// Tenant Domain
+//
+// Specifies a custom tenant domain which is attached to Buildless services. Domains attached in this manner must be
+// licensed on an individual basis. Some plans may include an amount of custom domains.
+table TenantDomain {}
+
+namespace buildless.Tenant_.TenantBranding_;
+
+// Tenant: Color Scheme
+//
+// Specifies a `primary` and `secondary` color, typically in hex. The primary and secondary colors for a given color
+// scheme are applied either in `dark` or `light` mode.
+table TenantColors {}
+
+namespace buildless.User_;
+
+// User Key
+//
+// Specifies the primary key structure for a Buildless user account. Buildless users are identified by their `uid`
+// field, which is generated at the time their account is created.
+table UserKey {}
+
+// Email Address
+//
+// Specifies an email address which is linked to a `User` account. Users may have exactly one `EmailAddress` record
+// which is marked `primary`. It is required that the `primary` address is also `verified`.
+table EmailAddress {}
+
+// Name
+//
+// Describes a person's name, including their given and family names, and a display name. The display name is rendered
+// from the given and family names, as applicable, at user creation time. The user may then adjust the display name
+// from their profile page.
+table Name {}
+
+namespace buildless.Account_;
+
+// Specifies a user account within the context of an `Account` record. In some contexts, the user may be operating
+// within the scope of a specific `Tenant`, in which case it may be included here.
+table UserAccount {}
+
+namespace buildless.Version_;
+
+// Semantic Version
+//
+// Specifies a "semver"-style version, with major, minor, and patch components.
+table SemanticVersion {
+    // The major version, e.g 10 for the value 10.2.3.
+    major: ushort;
+
+    // The minor version, e.g. 2 for the value 10.2.3.
+    minor: ushort;
+
+    // The patch version, e.g 3 for the value 10.2.3.
+    patch: uint;
+}

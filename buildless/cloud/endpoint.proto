@@ -1,0 +1,94 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+import "buildless/common.proto";
+import "buildless/cloud/cloud_provider.proto";
+
+package buildless.cloud;
+
+// ## Endpoint
+//
+// Defines configuration parameters for an internal endpoint of some kind.
+message Endpoint {
+  // ### Endpoint: Protocol
+  //
+  // Defines application protocols which may be declared for an endpoint.
+  enum ApplicationProtocol {
+    // Protocol is unspecified, unknown, or does not need to be declared in a given context.
+    AUTO = 0;
+
+    // Plain HTTP, capped at 1.1.
+    HTTP = 1;
+
+    // HTTPv2, over TCP.
+    HTTP2 = 2;
+
+    // HTTPv3, over UDP.
+    HTTP3 = 3;
+
+    // gRPC, typically conducted over HTTP/2.
+    GRPC = 4;
+
+    // MQTT (Message Queue Telemetry Transport), version 3.0.
+    MQTTv3 = 5;
+
+    // MQTT (Message Queue Telemetry Transport), version 5.0.
+    MQTTv5 = 6;
+
+    // Redis protocol, without version specification.
+    RESP = 7;
+  }
+
+  // ### Endpoint: Transport
+  //
+  enum TransportProtocol {
+    // Transport protocol is implied, unspecified, or unknown.
+    IMPLIED = 0;
+
+    // Specifies TCP as a transport, for example, for HTTP/1, HTTP/2, and gRPC.
+    TCP = 1;
+
+    // Specifies UDP as a transport, for example, for HTTP/3 or DNS.
+    UDP = 2;
+
+    // Refers to TCP wrapped in Transport Layer Security (TLS).
+    TLS = 3;
+  }
+
+  // Specifies the structure of a host and port pair.
+  message HostPortPair {
+    // Specifies the host portion of a host/port pair.
+    string host = 1;
+
+    // Specifies the port portion of a host/port pair.
+    uint32 port = 2;
+  }
+
+  // Specifies connection target info for this endpoint.
+  oneof target {
+    // Specifies a connection URI for this endpoint.
+    string uri = 1;
+
+    // Specifies a host/port pair for this endpoint.
+    HostPortPair host_port = 2;
+  }
+
+  // Specifies application-level protocol support for this endpoint.
+  repeated ApplicationProtocol protocol = 3;
+
+  // Specifies transport-level protocol support for this endpoint.
+  repeated TransportProtocol transport = 4;
+
+  // Weight value for this endpoint; used for client-side load balancing.
+  uint32 weight = 5;
+}

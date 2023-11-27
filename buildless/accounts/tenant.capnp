@@ -1,0 +1,36 @@
+@0xd5c909273bdacfd3;
+
+# Copyright 2023 Elide Ventures LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+# an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations under the License.
+
+# Defines primitive records which relate to the Elide Accounts service, including the concept of Tenant ID and User ID
+# strings, enumeration of scopes, and other useful utilities.
+
+using Java = import "/capnp/java.capnp";
+
+$Java.package("buildless.accounts");
+$Java.outerClassname("Tenant");
+
+
+# Tenant ID
+#
+# Wraps a string ID to indicate a Buildless Tenant ID as a type. The Tenant ID is also referred to as the "short name"
+# of the tenant, and is typically a short string of letters, numbers, and dashes/underscores (DNS-compatible names only
+# with a limit of 30-ish characters).
+#
+# This value is used as a sub-domain for custom build cache routing and other services, and may be enclosed on requests
+# in order to explicitly indicate an active tenant.
+#
+# In some circumstances, tenants are also referred to as "organizations."
+struct TenantID {
+  # Specifies the ID value for this tenant, also known as the "short name."
+  id @0 :Text;
+}

@@ -1,0 +1,645 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+/* Provides definitions for the structure of telemetry events emitted by, or consumed by, Buildless.
+ *
+ * **Note:** Because common objects in Buildless' model are not versioned, records should only be placed here which
+ *           outlive individual API versions. Care must be exercised to maintain forward and backward compatibility.
+ */
+package buildless.telemetry;
+
+import "buildless/code/repo.proto";
+import "elide/model/model.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/any.proto";
+import "validate/validate.proto";
+
+option cc_enable_arenas = true;
+option go_package = "github.com/elide-dev/buildless/telemetry;telemetry";
+option java_multiple_files = true;
+option java_package = "cloud.elide.cache.proto.telemetry";
+option java_string_check_utf8 = true;
+option optimize_for = SPEED;
+
+// ## HTTP Method
+//
+// Specifies the HTTP method which was active for a given HTTP request. These methods are defined in the HTTP specs
+// managed by the IETF.
+enum HttpMethod {
+  // HTTP `GET`.
+  GET = 0;
+
+  // HTTP `PUT`.
+  PUT = 1;
+
+  // HTTP `POST`.
+  POST = 2;
+
+  // HTTP `DELETE`.
+  DELETE = 3;
+
+  // HTTP `HEAD`.
+  HEAD = 4;
+
+  // HTTP `OPTIONS`.
+  OPTIONS = 5;
+
+  // Other HTTP methods; custom HTTP methods.
+  OTHER = 99;
+}
+
+// ## HTTP Version
+//
+// Enumerates known/supported HTTP protocol versions.
+enum HttpVersion {
+  // Specifies an unknown or un-recognized HTTP protocol version.
+  UNKNOWN_HTTP_VERSION = 0;
+
+  // Specifies HTTP/1.0.
+  HTTP_1_0 = 1;
+
+  // Specifies HTTP/1.1.
+  HTTP_1_1 = 2;
+
+  // Specifies HTTP/2.
+  HTTP_2 = 3;
+
+  // Specifies HTTP/3 (QUIC).
+  HTTP_3 = 4;
+}
+
+// ## TLS Version
+//
+// Enumerates known/supported Transport Layer Security (TLS) protocol versions.
+enum TlsVersion {
+  // Specifies an unknown or un-recognized TLS protocol version.
+  UNKNOWN_TLS_VERSION = 0;
+
+  // Specifies SSL 3.0.
+  SSL_3_0 = 1;
+
+  // Specifies TLS 1.0.
+  TLS_1_0 = 2;
+
+  // Specifies TLS 1.1.
+  TLS_1_1 = 3;
+
+  // Specifies TLS 1.2.
+  TLS_1_2 = 4;
+
+  // Specifies TLS 1.3.
+  TLS_1_3 = 5;
+}
+
+// ## HTTP Protocol Info
+//
+// Specifies information which applies to both an HTTP request and HTTP response info payload.
+message HttpInfo {
+  // HTTP version active for this request.
+  HttpVersion http_version = 1;
+
+  // Specifies the active TLS version wrapping this connection.
+  TlsVersion tls_version = 2;
+
+  // Specifies the counterparty IP in string (formatted) form.
+  string peer_ip = 3;
+}
+
+// ## HTTP Metadata
+//
+// Specifies information about a single HTTP header, trailer, or query parameter, keyed by a name. A single HTTP
+// metadata payload can contain multiple values for that key.
+message HttpMetadata {
+  // Specifies the key (name) for this header.
+  string key = 1;
+
+  // Specifies the set of values for this header.
+  repeated string value = 2;
+}
+
+// ## HTTP Request Info
+//
+// Specifies an HTTP request, including the method, URI, and headers or trailers associated with the request. Extra info
+// is enclosed which specifies connection-level information as well. The request body is never enclosed.
+message HttpRequestInfo {
+  // HTTP protocol versioning and information.
+  HttpInfo http = 1;
+
+  // HTTP method which was specified in the request.
+  HttpMethod method = 2;
+
+  // Specifies the server authority for a given HTTP request, if known.
+  string authority = 3;
+
+  // Specifies the URI path for a given HTTP request.
+  string path = 4;
+
+  // Specifies headers which were present on this request.
+  map<string, HttpMetadata> headers = 5;
+
+  // Specifies the payload size for this request, if applicable; if no payload is or was present, this is set to `0`.
+  uint32 size = 6;
+
+  // Specifies query parameters which were present on this request.
+  map<string, HttpMetadata> query = 7;
+}
+
+// ## HTTP Response Info
+//
+// Specifies an HTTP response, including the response status, size of response data, and various other metrics about the
+// response; the full response body is never enclosed.
+message HttpResponseInfo {
+  // HTTP protocol versioning and information.
+  HttpInfo http = 1;
+
+  // Status code for this HTTP response.
+  uint32 status = 2;
+
+  // Whether the response was "okay" or "successful." If `false`, the response represents an error.
+  bool ok = 3;
+
+  // Specifies headers which were present on this request.
+  map<string, HttpMetadata> headers = 5;
+
+  // Specifies trailers which were present on this request.
+  map<string, HttpMetadata> trailers = 6;
+
+  // Specifies the payload size for this request, if applicable; if no payload is or was present, this is set to `0`.
+  uint32 size = 7;
+
+  // Optional status text enclosed with the response.
+  string status_text = 8;
+}
+
+// ## Versioning Info
+//
+// Specifies generic versioning information for a given tool, OS, or other fragment of information. Versioning info is
+// structured in generic form; based on context, a tool or OS may use a subset of the available versioning properties,
+// so long as such usage is consistent across event delivery.
+message VersionInfo {
+  // Major version number. In the example `1.2.3`, this value would be `1`.
+  uint32 major = 1 [(google.api.field_behavior) = OPTIONAL];
+
+  // Minor version number. In the example `1.2.3`, this value would be `2`.
+  uint32 minor = 2 [(google.api.field_behavior) = OPTIONAL];
+
+  // Micro version number. In the example `1.2.3`, this value would be `3`.
+  uint32 micro = 3 [(google.api.field_behavior) = OPTIONAL];
+
+  // If there is a build number or tag value, it should be supplied here.
+  string build = 4 [(google.api.field_behavior) = OPTIONAL];
+
+  // If there is a release candidate number or string, it should be supplied here.
+  string rc = 5 [(google.api.field_behavior) = OPTIONAL];
+
+  // If there is a known commit to which a version relates, it should be supplied here.
+  string commit = 6 [(google.api.field_behavior) = OPTIONAL];
+
+  // If there is a known source control tag to which a version relates, it should be supplied here.
+  string tag = 7 [(google.api.field_behavior) = OPTIONAL];
+
+  // If there is a formatted representation of this version info, it should be expressed here.
+  string spec = 8 [(google.api.field_behavior) = OPTIONAL];
+
+  // If there is a release number associated with this version info, it should be expressed here. In some cases, the
+  // release number may be a timestamp.
+  uint64 release = 9 [(google.api.field_behavior) = OPTIONAL];
+}
+
+// ## Tool Info
+//
+// Specifies generic tooling information associated with an event. Tooling info is generic in the sense that nearly any
+// context which relates to some external code can be a "tool," if used within the scope of a build; for example, both
+// Gradle and the JVM can be considered "tools" in a standard Gradle Java build.
+//
+// Event sources may declare multiple tools for a given event. Ultimately, event declarations for tools just need to
+// maintain consistency across event reporting options.
+message ToolInfo {
+  // Name of the tool being expressed by this payload.
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // Version info for this tool, if known.
+  VersionInfo version = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+// ## OS Families
+//
+// Enumerates known operating system families.
+enum OSFamily {
+  // Unknown or un-recognized Operating System Family. This value should not be used by new code.
+  UNKNOWN_OS_FAMILY = 0;
+
+  // Pure Unix operating systems, such as FreeBSD and OpenBSD.
+  UNIX = 1;
+
+  // Linux and Linux-derived operating systems, such as Ubuntu or Red Hat.
+  LINUX = 2;
+
+  // macOS, iOS, iPad OS and other Darwin variants.
+  DARWIN = 3;
+
+  // Windows family of operating systems.
+  WINDOWS = 4;
+
+  // Other operating system family not otherwise listed here.
+  OTHER_OS = 5;
+}
+
+// ## Processor Architecture
+//
+// Enumerates available/known processor architectures. This information may be specified as part of an event context, as
+// it relates to the executing client (the "host"), or the target under construction/compilation.
+enum ProcessorArch {
+  // Unknown or un-recognized processor architecture. This value should not be used by new code.
+  UNKNOWN_ARCH = 0;
+
+  // X86-family architectures.
+  X86 = 1;
+
+  // ARM-family architectures.
+  ARM = 2;
+}
+
+// ## OS Info
+//
+// Specifies operating system information associated with an event. OS info carries a name, a family, and a version
+// payload (if known). Many times, this is derived from other input information (for instance, the User Agent header).
+message OSInfo {
+  // Specifies a shortname for the operating system. For example, for macOS, this would be "macOS".
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // Specifies the OS family that relates to the operating system info being expressed.
+  OSFamily family = 2 [(google.api.field_behavior) = REQUIRED];
+
+  // Specifies the architecture which the source operating system is running, if known.
+  ProcessorArch arch = 3 [(google.api.field_behavior) = REQUIRED];
+
+  // Specifies version info for the source operating system, if known.
+  VersionInfo version = 4 [(google.api.field_behavior) = REQUIRED];
+}
+
+// ## API Client Info
+//
+// Specifies information about the API client library or agent which is performing an event transmission to the main
+// Buildless service. This information is mostly used for problem diagnosis.
+message APIClientInfo {
+  // Specifies the invoking API client name.
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // Specifies version info for the invoking API client, if known.
+  VersionInfo version = 4 [(google.api.field_behavior) = REQUIRED];
+}
+
+// ## Telemetry Context
+//
+// Describes reference structures which connect `TelemetryEvent` objects with other objects, either within the Buildless
+// model, or externally, via integrations.
+//
+// ## Context type structure
+//
+// Telemetry context is typed. Each context record linkage has a required `type` field which maps to an implementation
+// protocol message. Implementation messages may be private and may be defined in the modules to which they relate.
+message EventContext {
+  option (elide.model.role) = WIRE;
+
+  // Type specification for this event context reference. This value should be a well-formed type URL which points to
+  // the protocol message implementing this context type.
+  string type = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).string = {
+      pattern: "^type.googleapis.com/buildless.context.[a-zA-Z.0-9]*$",
+      max_len: 64,
+    }
+  ];
+
+  // Specifies a resource which this context relates to. Optional, and only specifies when a resource relates to an
+  // event context payload.
+  string resource = 2 [
+    (google.api.field_behavior) = OPTIONAL,
+    (validate.rules).string = {
+      pattern: "^[a-zA-Z]{3,12}::[a-zA-Z0-9]*",
+      max_len: 128,
+    }
+  ];
+
+  // Action name that took place on the specified `resource`. Only allowed when a `resource` is specified, in which case
+  // `resource` is required.
+  string action = 3 [
+    (google.api.field_behavior) = OPTIONAL,
+    (validate.rules).string = {max_len: 32}
+  ];
+
+  // Event name or ID which occurred within the scope of this context type. This value is required for all context types
+  // and effectively describes available detail, or the event which triggered this context.
+  string event = 4 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).string = {max_len: 64}
+  ];
+}
+
+// ## Event Detail
+//
+// Specifies detailed information for a received telemetry event. Event detail is cross-referenced and enclosed in full
+// automatically by the telemetry system. For example, the user or organization which delivered an event will be filled
+// in and enclosed in the event payload.
+message EventDetail {
+  // ### Event Detail: Tenant
+  //
+  // Specifies information about the tenant which this event relates to, as applicable.
+  message TenantDetail {
+    // ID of the organization tenant.
+    uint32 oid = 1 [(google.api.field_behavior) = REQUIRED];
+
+    // Short name of the organization tenant.
+    string name = 2 [
+      (google.api.field_behavior) = REQUIRED,
+      (validate.rules).string = {
+        pattern: "^[a-zA-Z]{1}[a-zA-Z0-9_-]{2,32}",
+        max_len: 32,
+      }
+    ];
+  }
+
+  // ### Event Detail: User
+  //
+  // Specifies information about the user which this event relates to, as applicable.
+  message UserDetail {
+    // ID of the user account which relates to this event.
+    string uid = 1 [
+      (google.api.field_behavior) = REQUIRED,
+      (validate.rules).string = {max_len: 128}
+    ];
+
+    // Email address for the user account which relates to this event. Hashed with SHA-256.
+    bytes email = 2 [
+      (google.api.field_behavior) = REQUIRED,
+      (validate.rules).bytes = {len: 32}
+    ];
+
+    // Username for the user which relates to this event, as applicable. If this event is a tenant-bound event, this
+    // username will be the user's in-context tenant username, as applicable.
+    string username = 3 [
+      (google.api.field_behavior) = OPTIONAL,
+      (validate.rules).string = {max_len: 32}
+    ];
+  }
+
+  // ### Event Detail: Repository
+  //
+  // Specifies information about the source code repository which this event relates to, as applicable.
+  message RepositoryDetail {
+    // Provider which hosts the repository that relates to this event.
+    buildless.code.RepositoryProvider provider = 1 [
+      (google.api.field_behavior) = REQUIRED,
+      (validate.rules).enum = {defined_only: true}
+    ];
+
+    // Link for the source repository.
+    string link = 2 [
+      (google.api.field_behavior) = REQUIRED,
+      (validate.rules).string = {uri: true}
+    ];
+
+    // Display name for the source repository.
+    string name = 3 [
+      (google.api.field_behavior) = OPTIONAL,
+      (validate.rules).string = {max_len: 32}
+    ];
+  }
+
+  // ### Event Detail: Client
+  //
+  // Specifies information about the client which is invoking the API.
+  message ClientDetail {
+    // Specifies the set of detected or declared tools and tool versions which relate to a given event.
+    repeated ToolInfo tool = 1;
+
+    // Specifies the set of OS-related information for a given event.
+    OSInfo os = 2;
+
+    // API client library, or client agent, which is delivering this event.
+    APIClientInfo agent = 3;
+  }
+
+  // Specifies detail information for a tenant which relates to a telemetry event. Only present if an event is bound for
+  // an org tenant account, whether or not it is sent under a related user context.
+  TenantDetail tenant = 1;
+
+  // Specifies detail information for a user which relates to a telemetry event. Only present if an event is bound for
+  // an individual user account, or for a user account scope owned by a tenant, in which case `tenant` will be present.
+  UserDetail user = 2;
+
+  // Specifies detail information for a source code repository which relates to a telemetry event. Only present if an
+  // event relates to a source code repository.
+  RepositoryDetail repository = 3;
+
+  // Specifies detail information about the client which is invoking the API and delivering this telemetry event; in
+  // some cases, this may be replaced with the originating client (in multi-hop API scenarios).
+  ClientDetail client = 4;
+}
+
+// ## Event Timing
+//
+// Specifies timing information for a telemetry event, including the time the event occurred, the time the event was
+// received by the server, and so on.
+message EventTiming {
+  // Specifies a calculated time-hash value for this event. The time-hash is bound to the occurrence timestamp.
+  string timehash = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies the time at which this event occurred. This timestamp is reported by the client when it forms the event,
+  // before transmission to the server.
+  uint64 occurred = 2 [(google.api.field_behavior) = REQUIRED];
+
+  // Specifies the time at which the event was received by the server. This field can only be populated once the event
+  // has been processed by the Buildless service, so it is omitted on the client side.
+  uint64 received = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies the time at which the event was ingested by the pipeline. This field can only be populated once the event
+  // has been processed by the Buildless service, so it is omitted on the client side.
+  uint64 ingested = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// ## Geo Point
+//
+// Specifies a geo-point as it relates to an event location. This may consist of latitude/longitude values.
+message GeoPoint {
+  // Specifies the latitude value for this geo-point.
+  double lat = 1 [(google.api.field_behavior) = OPTIONAL];
+
+  // Specifies the longitude value for this geo-point.
+  double lon = 2 [(google.api.field_behavior) = OPTIONAL];
+}
+
+// ## Event Location
+//
+// Specifies originating location information for a telemetry event, to the extent it is known by either the client, or
+// the telemetry system. Location info includes the source IP and other location info embedded in the request.
+message EventLocation {
+  // Specifies the salted and hashed bytes of the IP address which delivered this event. This value is guaranteed to be
+  // stable for a given input IP address within the scope of a Buildless tenant or user account.
+  bytes source_ip = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies the timezone code for the originating location of this event. This value is calculated by the telemetry
+  // system on a best-effort basis, or it can be declared and sent by the client.
+  string timezone = 2 [(google.api.field_behavior) = OPTIONAL];
+
+  // Specifies an explicit geo-point where this event originates from, or, the telemetry system's best-effort guess as
+  // to the originating location for this event. This value is optional, and can be provided by the client.
+  GeoPoint point = 3 [(google.api.field_behavior) = OPTIONAL];
+
+  // Detected Nielsen metro (DMA) code for the provided location information on this event. This value is only available
+  // if the telemetry system is able to detect and resolve a Nielsen metro code for the provided location information.
+  string nielsen = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Detected locality (city name) for this event. This value is a best-effort calculation, just like the `nielsen`
+  // code, unless location info is provided explicitly by the client.
+  string locality = 5 [(google.api.field_behavior) = OPTIONAL];
+
+  // Detected region (state or province) for this event. This value is a best-effort calculation, just like the other
+  // detected location values listed on this payload.
+  string region = 6 [(google.api.field_behavior) = OPTIONAL];
+
+  // The only required value for an event locality payload. If not provided by the client, this value will be reliably
+  // detected (on a best-effort basis) and filled in on behalf of the client by the telemetry system.
+  string country = 7 [(google.api.field_behavior) = OPTIONAL];
+
+  // Specifies the geo-hash tag value associated with this event location. This value is typically calculated by the
+  // service based on available geographic input material.
+  string tag = 8 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Detected edge region (state or province) for this event. This value is indicated by the edge CDN service, and
+  // specifies the edge region where traffic first entered the network.
+  string edge = 9 [(google.api.field_behavior) = OPTIONAL];
+}
+
+// ## Telemetry: Event
+//
+// Describes the structure of an event which is emitted by, or consumed by, Buildless. For example, build analytics and
+// cache events are modeled using telemetry events.
+message TelemetryEvent {
+  option (elide.model.role) = EVENT;
+
+  // Specifies a relevance scope for this event; this value is calculated by the system, and may be provided in some
+  // circumstances in order to group related events.
+  string scope = 1 [
+    (google.api.field_behavior) = OUTPUT_ONLY,
+    (validate.rules).string = {
+      pattern: "^(user|tenant)::[a-zA-Z0-9]{3,64}$",
+      max_len: 64,
+    }
+  ];
+
+  // Specifies a semi-unique ID for this event, which is used by the telemetry system to de-duplicate events at the time
+  // of delivery to the API. If an event has been received before, it may be rejected, or omitted during processing.
+  string id = 2 [
+    (google.api.field_behavior) = REQUIRED,
+    (elide.model.field).type = ID,
+    (validate.rules).string = {
+      pattern: "^[a-zA-Z0-9]{12,64}$",
+      max_len: 64,
+    }
+  ];
+
+  // Specifies the organization tenant which this event is associated with. This field is automatically added to the
+  // event based on the event source and API key, and is only present for organization-related events.
+  string tenant = 3 [
+    (google.api.field_behavior) = OPTIONAL,
+    (validate.rules).string = {
+      pattern: "^org_[a-zA-Z0-9]{3,32}$",
+      max_len: 64,
+    }
+  ];
+
+  // Specifies the user account which this event is associated with. This field is automatically added to the event
+  // based on the event source and API key, and is only present for events which relate to a user.
+  string user = 4 [
+    (google.api.field_behavior) = OPTIONAL,
+    (validate.rules).string = {max_len: 128}
+  ];
+
+  // Specifies contextual information references which relate to this event. Multiple event contexts can be specified
+  // for a single event.
+  repeated EventContext context = 5 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).repeated = {
+      min_items: 1,
+      max_items: 10
+    }
+  ];
+
+  // Detailed information about this event. Most of this information is provided by the telemetry system automatically,
+  // and IDs referenced in this payload are expanded.
+  EventDetail detail = 6 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).message = {required: true}
+  ];
+
+  // Timing information for this event. This information is provided by the telemetry system automatically, except for
+  // the `occurred` timestamp, which is provided by the client.
+  EventTiming timing = 7 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).message = {required: true}
+  ];
+
+  // Specifies location information for this event payload. This information is either provided by the client, or, in
+  // some cases, a best-effort guess is made by the system on the server-side. All location information is optional.
+  EventLocation location = 8 [(google.api.field_behavior) = OPTIONAL];
+
+  // Raw bytes of a timer ID which relates multiple events to each other. This value is expected and guaranteed to be
+  // unique within the scope of a given account and telemetry session.
+  bytes timer = 9 [
+    (google.api.field_behavior) = OPTIONAL,
+    (validate.rules).bytes = {max_len: 32}
+  ];
+
+  // Specifies the ordinal index of this event, within the set of events delivered for this timer or session. This acts
+  // as an ordering hint to the server, and is set by the client.
+  uint32 ordinal = 10 [(google.api.field_behavior) = OPTIONAL];
+
+  // Raw data attached to this event. Custom data is opaque to the Buildless service. This field is optional, and may
+  // only be supported for some plans and accounts. Fields cannot start with the prefix `_buildless_`, or contain the
+  // string `buildless` at any position.
+  google.protobuf.Any data = 11 [(google.api.field_behavior) = OPTIONAL];
+}
+
+// ## Telemetry: Event
+//
+// Describes the structure of an event which is being processed by the Buildless platform. This structure is used when
+// emitting various events back out via webhooks.
+message IngestedEvent {
+  // Specifies the collection to which this event belongs. Named event collections are used for certain types of events
+  // which are grouped together for reporting purposes.
+  string collection = 1;
+
+  // Whether this event is a standalone event (`true`), or part of a series (`false`). Only applicable when sending
+  // streams of events.
+  bool fin = 2;
+
+  // Index of this event within the ordinal context of all events sent for a given event stream or session. Only
+  // applicable in circumstances where events have a natural order.
+  uint32 index = 3;
+
+  // Scope or operational context ID for this event. This value may be mixed into the event's ID and other data. This
+  // value is optional. For example, it may be filled in with a build ID in CI systems.
+  string scope = 4;
+
+  // Specifies the payload of the event being delivered. This field is required and constitutes the actual content of
+  // the event which should be validated, enriched, and persisted.
+  string event = 5;
+
+  // Specifies the timestamp indicating when this event occurred.
+  uint64 occurred = 6;
+
+  // Specifies the timestamp indicating when this event was ingested.
+  uint64 ingested = 7;
+}

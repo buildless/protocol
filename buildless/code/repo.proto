@@ -1,0 +1,117 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+// # Code-related models
+// Provides records which define source code repository information, and other code-related constructs.
+//
+// **Note:** Because common objects in Buildless' model are not versioned, records should only be placed here which
+//           outlive individual API versions. Care must be exercised to maintain forward and backward compatibility.
+package buildless.code;
+
+option cc_enable_arenas = true;
+option go_package = "github.com/elide-dev/buildless/code;code";
+option java_multiple_files = true;
+option java_package = "cloud.elide.cache.proto";
+option java_string_check_utf8 = true;
+option optimize_for = SPEED;
+
+// ## Repository Provider
+//
+// Enumerates available code repository providers, with which Buildless is integrated. Each repository provider may also
+// support a marketplace, in which case the provider will also have a presence in `PlanBase`. Repository providers also
+// connect to webhook definitions, as applicable.
+enum RepositoryProvider {
+  // Unspecified or not-applicable value.
+  NO_REPOSITORY_PROVIDER = 0;
+
+  // Repository host: Github.
+  GITHUB = 1;
+}
+
+// ## Source Control System
+//
+// Enumerates supported or recognized source control systems, such as Git, Subversion, Mercurial, and so on.
+enum SourceControlSystem {
+  // Unknown source control system; should not be used by regular code, as it signals a protocol backwards-incompatible
+  // value. An explicit value should always be used.
+  UNKNOWN_SOURCE_CONROL_SYSTEM = 0;
+
+  // Source control system: Git.
+  GIT = 1;
+
+  // Source control system: Subversion.
+  SUBVERSION = 2;
+
+  // Source control system: Mercurial.
+  MERCURIAL = 3;
+}
+
+// ## Git Protocols
+//
+// Enumerates known or supported protocols for interacting with Git repositories.
+enum GitProtocol {
+  // Default behavior for protocol resolution.
+  GIT_PROTOCOL_DEFAULT = 0;
+
+  // Git protocol: HTTPS.
+  GIT_HTTPS = 1;
+
+  // Git protocol: SSH.
+  GIT_SSH = 2;
+}
+
+// ## Repository Reference
+//
+// Refers to a source control repository with a URL, a potential label, and any specific system-related information. For
+// example, Git repositories can specify a protocol.
+message RepositoryReference {
+  // ### Reference: Git Repository
+  //
+  // Supplies information specific to Git repositories.
+  message GitRepositoryReference {
+    GitProtocol protocol = 1;
+  }
+
+  // ### Reference: Subversion Repository
+  //
+  // Supplies information specific to Subversion repositories.
+  message SubversionRepositoryReference {}
+
+  // ### Reference: Mercurial Repository
+  //
+  // Supplies information specific to Mercurial repositories.
+  message MercurialRepositoryReference {}
+
+  // Specifies a string name which uniquely identifies this repository. For example, GitHub repositories use this to
+  // specify an owner and repository path.
+  string name = 1;
+
+  // Display label for this repository. Presented to users in UI and listing circumstances.
+  string display_name = 2;
+
+  // Unique URI identifying this repository. Should refer to an endpoint where the repository can be obtained using
+  // protocol configurations in other fields.
+  string uri = 3;
+
+  // Specifies concrete reference information relating to the protocol used to access this repository.
+  oneof reference {
+    // Specifies a Git repository reference.
+    GitRepositoryReference git = 4;
+
+    // Specifies a Subversion repository reference.
+    SubversionRepositoryReference subversion = 5;
+
+    // Specifies a Mercurial repository reference.
+    MercurialRepositoryReference mercurial = 6;
+  }
+}

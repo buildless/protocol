@@ -1,0 +1,34 @@
+@0x90a053e07c1e3b4c;
+
+# Copyright 2023 Elide Ventures LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+# an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations under the License.
+
+# Defines primitive records which relate to the Elide Accounts service, including the concept of Tenant ID and User ID
+# strings, enumeration of scopes, and other useful utilities.
+
+using Java = import "/capnp/java.capnp";
+
+$Java.package("buildless.accounts");
+$Java.outerClassname("User");
+
+
+# User ID
+#
+# Wraps a string ID to indicate a Buildless User ID as a type. The User ID is also referred to as the "UID" in some
+# contexts. It is an opaque value which does not change over the lifecycle of a single distinct user account.
+#
+# The User ID is used within the Buildless system to express a linkage to a user record, regardless of whether that
+# user is operating within the context of a tenant account; the one notable exception to this is _managed users_, which
+# _only_ reside within the context of a tenant account.
+struct UserID {
+  # Specifies the ID value for this user, also known as the "UID."
+  id @0 :Text;
+}

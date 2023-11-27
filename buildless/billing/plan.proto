@@ -1,0 +1,143 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+package buildless.billing;
+
+option cc_enable_arenas = true;
+option go_package = "github.com/elide-dev/buildless/billing;billing";
+option java_multiple_files = true;
+option java_package = "cloud.elide.cache.proto";
+option java_string_check_utf8 = true;
+option optimize_for = SPEED;
+
+// ## Plan Info
+//
+// Specifies information about a Buildless plan configuration. This record is generic to organizations and individuals;
+// each may be specified via the `plan` one-of field.
+message PlanInfo {
+  // Base plan host. This is set to the marketplace or system which provides the plan described by this record.
+  PlanBase base = 1;
+
+  // Specifies plan info for a tenant or individual, based on context.
+  oneof plan {
+    // Specifies plan info for a tenant organization.
+    TenantPlanInfo org = 10;
+
+    // Specifies plan info for an individual account.
+    IndividualPlanInfo individual = 11;
+  }
+}
+
+// ## Plan Info: Tenant
+//
+// Specifies information about a Buildless organization's plan. Buildless organizations have different plan tiers from
+// individual accounts. Plans may also include extra user seats and other add-ons which individual accounts are not
+// eligible for.
+message TenantPlanInfo {
+  // Specifies the tenant's main plan level.
+  TenantPlan tier = 1;
+
+  // Specifies the cadence or cycle at which billing occurs for this tenant.
+  BillingCycle billing_cycle = 2;
+}
+
+// ## Plan Info: Individual
+//
+// Specifies information about a Buildless individual account's plan. Buildless individual accounts have dedicated plan
+// tiers separately from organizations, and are eligible for different add-ons and charges.
+message IndividualPlanInfo {
+  // Specifies an individual seat's main plan level.
+  IndividualPlan tier = 1;
+
+  // Specifies the cadence or cycle at which billing occurs for this individual user.
+  BillingCycle billing_cycle = 2;
+}
+
+// ## Plan: Base
+//
+// Describes the marketplace where a plan is made available for Buildless. For example, if a user or organization pays
+// for their plan established through GitHub, then `PLAN_GITHUB` is specified within `PlanInfo`.
+enum PlanBase {
+  // Default value: no plan base specified. In this case, the plan is provided directly by Buildless.
+  PLAN_BASE_INTERNAL = 0;
+
+  // Base: GitHub. The subscriber has a plan which was established through the GitHub Marketplace.
+  PLAN_GITHUB = 1;
+}
+
+// ## Plan: Billing Cycle
+//
+// Describes available options for billing cycles/plan billing frequency. Usually, a plan frequency is billed monthly or
+// annually, but other terms may apply.
+enum BillingCycle {
+  // Billing cycle unrecognized or unspecified. This is the default value, and should not be used by code explicitly.
+  // When a cycle value is unrecognized because it is backwards-incompatible, this is used instead of the invalid value.
+  BILLING_CYCLE_UNRECOGNIZED = 0;
+
+  // Billing cycle: **Monthly**. Specifies a monthly billing cycle.
+  MONTHLY = 1;
+
+  // Billing cycle: **Quarterly**. Specifies a quarterly billing cycle.
+  QUARTERLY = 2;
+
+  // Billing cycle: **Annually**. Specifies an annual billing cycle.
+  ANNUAL = 3;
+
+  // Billing cycle: **Contract**. Indicates a custom contract basis for a billing cycle.
+  CONTRACT = 4;
+}
+
+// ## Plan: Tenant
+//
+// Enumerates available tenant-level plan tiers. Each plan tier is generic and blind to a given `PlanBase`. Depending
+// on commercial circumstances, different `PlanBase` and `TenantPlan` combinations may result in different price points.
+enum TenantPlan {
+  // Tenant plan unrecognized or unspecified. This is the default value, and should not be used by code explicitly. When
+  // a plan value is unrecognized because it is backwards-incompatible, this is used in place of the invalid value.
+  TENANT_PLAN_UNRECOGNIZED = 0;
+
+  // Tenant plan: **Team**. Specifies a plan level which includes multiple team seats for an organization. This is the
+  // entry-level plan tier for organizations.
+  TENANT_PLAN_TEAM = 1;
+
+  // Tenant plan: **Business**. Specifies a premium-level plan which includes multiple team seats for an organization.
+  // This is the premium plan tier for organizations.
+  TENANT_PLAN_BUSINESS = 2;
+
+  // Tenant plan: **Enterprise**. Specifies a plan level which is fully unlimited for an enterprise organization. This
+  // is the top-most plan tier for organizations.
+  TENANT_PLAN_ENTERPRISE = 99;
+}
+
+// ## Plan: Individual
+//
+// Enumerates available individual-level plan tiers. Each plan tier is generic and blind to a given `PlanBase`.
+// Depending on commercial circumstances, different `PlanBase` and `IndividualPlan` combinations may result in different
+// price points.
+enum IndividualPlan {
+  // Individual plan unrecognized or unspecified. This is the default value, and should not be used by code explicitly.
+  // When a plan value is unrecognized because it is backwards-incompatible, this is used in place of the invalid value.
+  INDIVIDUAL_PLAN_UNRECOGNIZED = 0;
+
+  // Tenant plan: **Free**. This specifies a free-tier plan for an individual account. This is the entry-level plan for
+  // an account and may impose restrictive quotas or other limitations.
+  INDIVIDUAL_PLAN_FREE = 1;
+
+  // Tenant plan: **Pro**. This specifies a paid plan for an individual account. Pro accounts have dedicated allocations
+  // of cache storage and transfer, but are limited to one user seat.
+  INDIVIDUAL_PLAN_PRO = 2;
+
+  // Tenant plan: **Unlimited**. This specifies a paid plan for an individual account. Unlimited accounts have dedicated
+  // allocations of cache storage and transfer with unlimited consumable usage, but are limited to one user seat.
+  INDIVIDUAL_PLAN_UNLIMITED = 99;
+}

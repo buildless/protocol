@@ -1,0 +1,68 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+package buildless.projects;
+
+import "validate/validate.proto";
+
+option cc_enable_arenas = true;
+option go_package = "github.com/elide-dev/buildless/projects;project_key";
+option java_multiple_files = true;
+option java_package = "cloud.elide.cache.proto.projects";
+option java_string_check_utf8 = true;
+option optimize_for = SPEED;
+
+// ## Project Key
+//
+// Specifies the structure of a project's record key. Project keys are assembled from user inputs and server-generated
+// values at the time a project is created, and then used to reference such project later. Project keys specify owner
+// information and carry a version for the underlying project record (where applicable).
+message ProjectKey {
+  // Specifies the identifying value for the project itself.
+  oneof value {
+    // Generated UUID value by which the project can be referenced.
+    string uuid = 1 [
+      (validate.rules).string = {
+        max_len: 32,
+        pattern: '^[a-f0-9]{8}(?:-[a-f0-9]{4}){4}[a-f0-9]{8}$',
+      }
+    ];
+
+    // "Short name" of a project, which is assigned by the user at the time the project is created, or by the server if
+    // no value is provided by the user.
+    string name = 2 [
+      (validate.rules).string = {
+        max_len: 32,
+        pattern: '^[a-z][a-z0-9-_/]{2,64}[a-z0-9]$',
+      }
+    ];
+  }
+
+  // Specifies the owner for this project.
+  string owner = 3 [
+    (validate.rules).string = {
+      max_len: 32,
+      pattern: '^[a-z][a-z0-9-_|]{2,128}[a-z0-9]$',
+    }
+  ];
+
+  // Reserved for future use.
+  reserved 4;
+  reserved 5;
+
+  // Specifies the "version" of the project, as understood by the agent handling the key (the server or the client). The
+  // record version should increment with each change to the underlying project record.
+  uint64 version = 6 [
+    (validate.rules).uint64.gte = 0
+  ];
+}

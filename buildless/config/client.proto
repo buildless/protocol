@@ -1,0 +1,223 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+// # Configuration models
+// Provides records which define the structure of Buildless configuration files.
+//
+// **Note:** Because common objects in Buildless' model are not versioned, records should only be placed here which
+//           outlive individual API versions. Care must be exercised to maintain forward and backward compatibility.
+package buildless.config;
+
+import "buildless/config/protocol.proto";
+
+option cc_enable_arenas = true;
+option go_package = "github.com/elide-dev/buildless/config;config";
+option java_multiple_files = true;
+option java_package = "cloud.elide.cache.proto";
+option java_string_check_utf8 = true;
+option optimize_for = SPEED;
+
+// ## Configuration Format
+//
+// Enumerates supported configuration file formats. User or project-level configurations may use these formats, with the
+// structure from the `Profile` record, to configure Buildless on a client machine.
+enum ConfigFormat {
+  // Unspecified configuration format; this value should not be used explicitly by code.
+  UNSPECIFIED_FORMAT = 0;
+
+  // The configuration file is a JSON document.
+  JSON = 1;
+
+  // The configuration file is a YAML document.
+  YAML = 2;
+
+  // The configuration file is a TOML document.
+  TOML = 3;
+}
+
+// ## Configuration: Cache Endpoint
+//
+// Specifies information about a remote cache endpoint configured for use with Buildless.
+message CacheEndpoint {
+  // URI for the cache endpoint.
+  string uri = 1;
+
+  // Protocol to use when communicating with the cache endpoint.
+  CacheProtocol protocol = 2;
+
+  // Tool-specific protocol, if applicable.
+  ToolCacheProtocol tool_protocol = 3;
+}
+
+// ## Configuration: Settings
+//
+// Specifies a single structure which encapsulates all available configuration settings for Buildless. This payload is
+// used to combine and merge settings across configuration sources.
+message Settings {
+  // Specifies settings related to the local build cache.
+  message LocalBuildCache {
+    // Whether to store cached items locally. Some build tooling supports this natively (i.e. Gradle).
+    bool enabled = 1;
+
+    // Whether to skip directory size management for the local cache.
+    bool skip_trim = 2;
+
+    // Maximum days to keep local cache entries around; only supported by some engines. Defaults to 30 days where
+    // supported and enabled.
+    uint32 max_days = 3;
+  }
+
+  // Specifies settings related to the remote build cache.
+  message RemoteBuildCache {
+    // Whether to store and retrieve cached build artifacts from remote endpoints.
+    bool enabled = 1;
+
+    // Whether to skip pushing artifacts to the build cache; defaults to `false`, meaning pushes are active.
+    bool skip_push = 2;
+
+    // Custom endpoint settings to use for the remote build cache.
+    CacheEndpoint endpoint = 3;
+  }
+
+  // Specifies settings related to the on-machine near build cache.
+  message NearBuildCache {
+    // Whether to store and retrieve cached build artifacts from the near-cache server.
+    bool enabled = 1;
+
+    // Endpoint to use for the near cache.
+    CacheEndpoint endpoint = 2;
+  }
+
+  // Combined suite of settings which govern how build caching behaves.
+  message BuildCache {
+    // Whether to enable build caching at all.
+    bool enabled = 1;
+
+    // Specifies settings for the local build cache.
+    LocalBuildCache local = 2;
+
+    // Specifies settings for the remote build cache.
+    RemoteBuildCache remote = 3;
+
+    // Near-cache server settings.
+    NearBuildCache near = 4;
+  }
+
+  // Settings which govern the local agent service.
+  message AgentSettings {
+    // Whether to enable agent services; generally defaults to `true`.
+    bool enabled = 1;
+
+    // Port which the agent should run on; overrides default.
+    uint32 port = 2;
+
+    // Socket path for the agent; overrides default.
+    string sock = 3;
+  }
+
+  // Specifies build caching settings.
+  BuildCache build_cache = 1;
+
+  // Settings which govern the local agent service.
+  AgentSettings agent = 2;
+}
+
+// ## Client Credentials
+//
+// Specifies the structure of each credential type which can be used from a Buildless client. Only one credential may be
+// active at any time; other settings govern the active tenant (as applicable) for a given user or project.
+message Credential {
+  // Explicit tenant name which this configuration profile is associated with, if applicable.
+  string tenant = 1;
+
+  // Specifies the subject type for this credential.
+  oneof credential {
+    // Specifies an API key value as a credential.
+    string api_key = 10;
+  }
+}
+
+// ## Configuration Profile
+//
+// Describes a single configuration profile for use with Buildless; a configuration profile is typically materialized
+// from a configuration file. See Buildless CLI docs for more info about supported formats and settings.
+message Profile {
+  // Describes the type of configuration profile, which also indicates the source/scope of the profile.
+  enum Type {
+    // Unspecified profile type; this value should not be used explicitly by code.
+    UNSPECIFIED_PROFILE_TYPE = 0;
+
+    // The profile is a global set of defaults, hard-coded into an application.
+    GLOBAL = 1;
+
+    // The profile is a set of user-level overrides, typically specified in a user's home directory.
+    USER = 2;
+
+    // The profile is a set of project-level overrides, typically specified in a project's source repository.
+    PROJECT = 3;
+  }
+
+  // Specifies information about the configuration file which was used to materialize this profile, as applicable.
+  message ConfigFile {
+    // Path value for this configuration profile; for profiles of type `GLOBAL`, this value is empty.
+    string path = 1;
+
+    // Format of the described configuration file.
+    ConfigFormat format = 3;
+  }
+
+  // Specifies information about a synthesized config profile, from the user's terminal environment.
+  message Environment {
+    // Specifies environment variables which were detected and applied within this profile.
+    repeated string var = 1;
+  }
+
+  // Specifies the configuration file structure version; at the time of this writing, the only available version is `1`,
+  // which is also the default value of this field.
+  uint32 version = 1;
+
+  // Specifies the "name" string for this profile; for a file, this is the file name.
+  string name = 2;
+
+  // Specifies the "display name" string for this profile. This is either calculated based on the configuration scope
+  // and contents, or set explicitly by the user in a configuration profile.
+  string display_name = 3;
+
+  // Specifies the type of profile described by this record, which also indicates the applicable scope.
+  Type type = 4;
+
+  // Activates "debug mode" for the Buildless client, which increases logging verbosity and enables API tracing; API
+  // calls with tracing values can be referenced easily from the web dashboard for debugging purposes.
+  bool debug = 5;
+
+  // Specifies the active auth credential to use for this profile, if present.
+  Credential credential = 6;
+
+  // Project ID which this configuration profile is associated with, if applicable.
+  string project = 7;
+
+  // Specifies the source of this configuration profile (where it originates from).
+  oneof source {
+    // Specifies a built-in configuration profile, with hard-coded defaults.
+    bool builtin = 8;
+
+    // Describes configuration file information for this profile, as applicable. Not set for profiles of type `GLOBAL`.
+    ConfigFile file = 9;
+
+    // The profile is derived from environment variables.
+    Environment environment = 10;
+  }
+
+  // Settings which are active for this configuration profile.
+  Settings settings = 11;
+}

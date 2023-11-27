@@ -1,0 +1,999 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+/* # Buildless API
+ *
+ * Defines version 1 ("v1") of the main Buildless API service; the Buildless API provides all forward-facing functions
+ * available for first-party and third-party use. The Buildless API is exposed as a gRPC service, a JSON-REST service,
+ * and as raw endpoints for use with primitive caching clients.
+ *
+ * For information about authentication and available API endpoints, see the `Buildless` service below.
+ *
+ * ## Authentication
+ *
+ * Nearly all methods on the Buildless service require authorization. There are multiple ways to authorize a request to
+ * the Buildless API: you can use an OIDC token acquired via an account login flow, or an API key acquired via the
+ * Buildless UI or CLI.
+ *
+ * When using a JWT acquired via OIDC, the token should be placed as a `Bearer`-scheme `Authorization` header in the
+ * request. The same is true for gRPC, except it is present in request metadata. When using an API key to authorize a
+ * request, it should be placed in the same `Authorization` header, also with a `Bearer` scheme. For compatibility
+ * reasons, the API key may also be placed in the `X-API-Key` header (with no prefix).
+ *
+ * To summarize, the API key may be specified via:
+ * - An `Authorization: Bearer <api-key>` header
+ * - The `X-API-Key` header (no prefix)
+ * - Via HTTP Basic Authentication, with `"apikey"` as the username, and the API key as the password
+ *
+ * ### HTTP Basic Authentication
+ *
+ * API keys may also be specified via HTTP Basic Authentication. In this case, use the static string `apikey` as the
+ * username, and your API key as the password.
+ *
+ * ### Publishable Authentication
+ *
+ * The _Telemetry Service_ supports _publishable API keys_, which are keys that are used to identify a client, and are
+ * safe to publish publicly. Publishable keys only offer write support to the telemetry service, and do not grant any
+ * other access to a given Buildless tenant or user account.
+ *
+ * ## API Dispatch
+ *
+ * The Buildless service may be dispatched over gRPC, OpenAPI (via JSON/REST), or via simple HTTP GET/PUT endpoints
+ * which are designed to work with existing tools. The OpenAPI and HTTP endpoints are automatically generated from the
+ * same code, so which API you use is entirely up to you.
+ *
+ * ## API Versioning
+ *
+ * Each API version is defined in a separate gRPC interface, and made available at a dedicated URL. The most recent API
+ * version is served at the version name `latest`, and also at URLs with no version specified. The Buildless API is
+ * aggressively backwards-and-forwards compatible, and there are several ways to specify a version.
+ *
+ * ### Specifying an API version
+ *
+ * The API version can be selected via any of the following mechanisms:
+ * - HTTP URL path: A version may be specified in the URL path, as the first component (i.e. `/v1/...`).
+ * - gRPC service path: All gRPC service paths are versioned.
+ * - HTTP header: A version may be specified in the `Accept-Version` header (i.e. `Accept-Version: v1`). In this case,
+ *   requests should be sent to URLs with no version component present.
+ *
+ * ## Services: Caching
+ *
+ * Defines the API surface for the _Cache_ service, which provides build caching functionality. Methods defined in this
+ * service are either dispatched from API clients, or used directly from build tools, in which case dispatch frequently
+ * happens over HTTPS. Dispatch from internal clients typically happens from gRPC.
+ *
+ * ### Generic Endpoints
+ *
+ * The cache service provides two endpoints, `CacheGenericFetch` and `CacheGenericStore`, which are designed for use by
+ * generic tooling, including tools like CCache, Gradle, and others. The generic cache endpoints may be invoked over
+ * HTTPS or gRPC, and must be authorized either with an API key or user token.
+ *
+ * The typical case for generic endpoint use is an API key expressed in an HTTP Basic auth scheme, with the username
+ * `apikey` and the API key as the password.
+ *
+ * ### Specialized Endpoints
+ *
+ * The cache service may provide additional endpoints which are dedicated for specific tools. At this time, no such
+ * endpoints are specified.
+ */
+package buildless.service.v1;
+
+import "buildless/common.proto";
+import "buildless/api/meta.proto";
+import "buildless/client/client.proto";
+import "buildless/config/protocol.proto";
+import "buildless/telemetry/event.proto";
+import "elide/model/model.proto";
+import "google/api/annotations.proto";
+import "google/api/client.proto";
+import "google/api/field_behavior.proto";
+import "google/api/httpbody.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "openapiv3/annotations.proto";
+import "validate/validate.proto";
+
+option cc_enable_arenas = true;
+option go_package = "github.com/elide-dev/buildless/service/v1;buildless_svc_v1";
+option java_multiple_files = true;
+option java_package = "cloud.elide.cache.proto.service.v1";
+option java_string_check_utf8 = true;
+option optimize_for = SPEED;
+option (openapi.v3.document) = {
+  info: {
+    title: "Buildless",
+    version: "1.0.0"
+  }
+};
+
+// Defines the API surface for the main Buildless service. Methods defined in this service are typically open to
+// third-party developers. Under the hood of Buildless-powered tools, or via 3rd-party tools, these methods may be used
+// to interact with the global cache, manage account state, and more.
+service Buildless {
+  option (google.api.default_host) = "rpc.less.build";
+
+  // ## Cache Probe
+  //
+  // Probe the cache for a specific key. This method is used to determine whether a key is present in the cache without consuming the data associated with the key.
+  //
+  // This method is typically used by clients to determine whether a key is worth downloads from the cache, or whether it should be built locally.
+  //
+  // Often, tooling will skip this step and perform a `CacheFetch` directly, relying on HTTP 404 to indicate that the item could not be found. All cache probe requests must be authorized with an API key or user token.
+  rpc CacheProbe(CacheFetchRequest) returns (google.protobuf.Empty) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+
+    option (buildless.api.authz) = {allow_anonymous: false};
+    option (google.api.http) = {
+      custom {
+        kind: "HEAD"
+        path: "/v1/cache/{cache_key}"
+      }
+    };
+    option (openapi.v3.operation) = {
+      summary: "Probe the cache for a specific key"
+      operation_id: "CacheProbe"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Served when requisite credentials were missing from the request, or were expired."}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Served when credentials are present but the user does not have permission."}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Cache Fetch
+  //
+  // Fetch an item from the Buildless cache which resides at a known key. This endpoint should be used by tools which already know how to properly cache and resolve build inputs.
+  //
+  // Cache fetch requests are simple, and deal with only one input: a key, which should either be present in the hash or not. If the key is present, the cache will return the blob associated with it; in some circumstances, for large blobs, a redirect may be returned (where supported).
+  //
+  // If the key is not present, an HTTP 404 is issued to indicate a missing cache value. All cache fetch requests must be authorized either by a Buildless API key, or a user token.
+  //
+  // ### Avoiding HTTP caching
+  //
+  // If desired, `POST` may also be used for the `CacheFetch` operation, which avoids intermediate HTTP caching. By default, `GET` may be used if HTTP caching is desired or acceptable for your use case.
+  rpc CacheFetch(CacheFetchRequest) returns (google.api.HttpBody) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+
+    option (buildless.api.authz) = {allow_anonymous: false};
+    option (google.api.http) = {
+      get: "/v1/cache/{cache_key}"
+      additional_bindings {post: "/v1/cache:fetch"}
+    };
+    option (openapi.v3.operation) = {
+      summary: "Fetch by key"
+      operation_id: "CacheFetch"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "200"
+          value {
+            response {
+              description: "Default successful response from the cache with attached data"
+              content {
+                additional_properties {
+                  name: "application/octet-stream"
+                  value {
+                    schema {
+                      schema {format: "binary"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        response_or_reference {
+          name: "303"
+          value {
+            response {description: "Successful redirect response from the cache; the destination URL contains the raw data"}
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Missing credentials"}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Permission denied"}
+          }
+        }
+        response_or_reference {
+          name: "404"
+          value {
+            response {description: "Response indicating a cache miss"}
+          }
+        }
+        response_or_reference {
+          name: "406"
+          value {
+            response {description: "Indicates that no acceptable content variants could be served. Check your `Accept` header."}
+          }
+        }
+        response_or_reference {
+          name: "416"
+          value {
+            response {description: "Served when a byte-range request cannot be satisfied by a present key"}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Cache Store
+  //
+  // Persist a bundle of raw data with the Buildless cache, which should reside at a known key. This endpoint should be used by tools which already know how to properly cache and resolve build inputs.
+  //
+  // Cache store requests specify the key at which the item should be stored. Cache keys may vary by tool or project, but, in all cases, are considered opaque by Buildless. All cache store requests must be authorized either by a Buildless API key, or a user token.
+  //
+  // HTTP `POST` and `PUT` are interchangeable for this endpoint.
+  //
+  // *Note:* The headers `Content-Type` and `Content-Length` are required to be set on all inputs. The `Content-Type` value is respected by the cache when the content is served. Different `Content-Length` values may change how the server responds to the upload request.
+  rpc CacheStore(CacheStoreRequest) returns (CacheStoreResponse) {
+    option idempotency_level = IDEMPOTENT;
+
+    option (buildless.api.authz) = {allow_anonymous: false};
+    option (google.api.http) = {
+      put: "/v1/cache/{cache_key}"
+      body: "data"
+    };
+    option (openapi.v3.operation) = {
+      summary: "Put by key"
+      operation_id: "CacheStore"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      request_body {
+        request_body {
+          description: "Data to store in the cache."
+          content {
+            additional_properties: {
+              name: "application/octet-stream"
+              value {
+                schema {
+                  schema {
+                    type: "string"
+                    format: "binary"
+                  }
+                }
+              }
+            }
+            additional_properties: {
+              name: "application/tar"
+              value {
+                schema {
+                  schema {
+                    type: "string"
+                    format: "binary"
+                  }
+                }
+              }
+            }
+            additional_properties: {
+              name: "application/tar+gzip"
+              value {
+                schema {
+                  schema {
+                    type: "string"
+                    format: "binary"
+                  }
+                }
+              }
+            }
+            additional_properties: {
+              name: "application/tar+br"
+              value {
+                schema {
+                  schema {
+                    type: "string"
+                    format: "binary"
+                  }
+                }
+              }
+            }
+            additional_properties: {
+              name: "application/tar+xz"
+              value {
+                schema {
+                  schema {
+                    type: "string"
+                    format: "binary"
+                  }
+                }
+              }
+            }
+            additional_properties: {
+              name: "application/vnd.gradle.build-cache-artifact.v1"
+              value {
+                schema {
+                  schema {
+                    type: "string"
+                    format: "binary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      responses {
+        default {
+          response {
+            description: "Successful response containing object metadata (only expressed when requested)."
+            content {
+              additional_properties: {name: "application/json"}
+            }
+          }
+        }
+        response_or_reference {
+          name: "202"
+          value {
+            response {description: "Default successful response: data was accepted for storage in the cache."}
+          }
+        }
+        response_or_reference {
+          name: "307"
+          value {
+            response {description: "Where supported, stored objects may be directed to a dedicated storage URL."}
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Served when requisite credentials were missing from the request, or were expired."}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Served when credentials are present but the user does not have permission."}
+          }
+        }
+        response_or_reference {
+          name: "409"
+          value {
+            response {description: "Indicates an upload conflict: the object is locked and concurrently being written to."}
+          }
+        }
+        response_or_reference {
+          name: "411"
+          value {
+            response {description: "Served when the storage request is missing a declared `Content-Length`, which is required."}
+          }
+        }
+        response_or_reference {
+          name: "413"
+          value {
+            response {description: "Served when a payload is too large to store in the cache. Check plan quotas for more info."}
+          }
+        }
+        response_or_reference {
+          name: "414"
+          value {
+            response {description: "Served when the cache key is too long. Check documentation and headers for more info."}
+          }
+        }
+        response_or_reference {
+          name: "415"
+          value {
+            response {description: "Served when the provided `Content-Type` is invalid or cannot be stored."}
+          }
+        }
+        response_or_reference {
+          name: "422"
+          value {
+            response {description: "Served when a payload is not valid and cannot be stored. See headers for more info."}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Cache Flush by Key
+  //
+  // Flush data from the cache at a given cache key. If the data is not held by the cache, or is already expired, then this method is a no-op; otherwise, the data is removed from the cache.
+  //
+  // Cache flush requests may take some time to process. As a good rule of thumb, the cache should be considered in-sync within 30 seconds of issuing a `CacheFlush` request.
+  //
+  // All cache flush requests must be authorized either by a Buildless API key, or a user token.
+  rpc CacheFlush(CacheFlushRequest) returns (google.protobuf.Empty) {
+    option (buildless.api.authz) = {allow_anonymous: false};
+    option (google.api.http) = {delete: "/v1/cache/{cache_key}"};
+    option (openapi.v3.operation) = {
+      summary: "Flush by key"
+      operation_id: "CacheFlush"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Served when requisite credentials were missing from the request, or were expired."}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Served when credentials are present but the user does not have permission."}
+          }
+        }
+      }
+    };
+  }
+}
+
+// Defines the API surface for the Buildless analytics service. This service is used to collect devops analytics, and
+// internal analytics for the suite of Buildless extensions, SDKs, and tools.
+service Telemetry {
+  option (google.api.default_host) = "rpc.less.build";
+
+  // ## Ping the Service
+  //
+  // Emits a ping message to the Telemetry API, which the Telemetry API immediately returns. Both messages must be empty.
+  rpc Ping(google.protobuf.Empty) returns (google.protobuf.Empty) {
+    option (buildless.api.authz) = {
+      allow_anonymous: true,
+      allow_publishable: true
+    };
+    option (google.api.http) = {post: "/v1/telemetry/event:ping"};
+    option (openapi.v3.operation) = {
+      summary: "Ping"
+      operation_id: "EventPing"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+    };
+  }
+
+  // ## Emit an Event
+  //
+  // Emits a single event to the telemetry service. This method is used to emit events which are not part of a series. The event in question is enriched/decorated with additional context, and then acknowledged or rejected.
+  rpc EventEmit(Event) returns (EventID) {
+    option (buildless.api.authz) = {
+      allow_anonymous: true,
+      allow_publishable: true
+    };
+    option (google.api.http) = {post: "/v1/telemetry/event:emit"};
+    option (openapi.v3.operation) = {
+      summary: "Emit event"
+      operation_id: "EventEmit"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Served when requisite credentials were missing from the request, or were expired."}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Served when credentials are present but the user does not have permission."}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Emit a Stream of Events
+  //
+  // Establishes a stream over which events can be reported to the telemetry service efficiently, and in bulk (the event payloads in question are automatically associated). This method is used to emit events which are part of a series.
+  rpc EventStream(stream Event) returns (stream EventID) {
+    option (buildless.api.authz) = {
+      allow_anonymous: true,
+      allow_publishable: true
+    };
+    option (google.api.http) = {post: "/v1/telemetry/event:stream"};
+    option (openapi.v3.operation) = {
+      summary: "Stream events"
+      operation_id: "EventEmit"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Served when requisite credentials were missing from the request, or were expired."}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Served when credentials are present but the user does not have permission."}
+          }
+        }
+      }
+    };
+  }
+}
+
+// Defines the API surface for methods which are provided to Buildless clients, SDKs, and tools. This service is used
+// for things like checking configurations & credentials, performing login flows, and client-side routing and balancing.
+service ClientConfig {
+  option (google.api.default_host) = "rpc.less.build";
+
+  // ## Cache Configuration
+  //
+  // Retrieve configuration which describes the current service instance.
+  //
+  // This method reveals whether the authenticated user is talking to a local or remote endpoint, and offers initial client configuration.
+  rpc ClientConfig(CacheConfigRequest) returns (CacheConfigResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+
+    option (buildless.api.authz) = {allow_anonymous: true};
+
+    option (google.api.http) = {
+      get: "/v1/client:config"
+      additional_bindings {post: "/v1/cache:config"}
+    };
+    option (openapi.v3.operation) = {
+      summary: "Cache configuration"
+      operation_id: "CacheConfig"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "200"
+          value {
+            response {
+              description: "Successful response with cache configuration"
+            }
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Missing credentials"}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Permission denied"}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Credential Check
+  //
+  // Check a suite of end-user credentials for validity; this method is used from clients, SDKs, and other end-user agents.
+  rpc CredentialsCheck(CredentialCheckRequest) returns (CredentialCheckResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+
+    option (buildless.api.authz) = {allow_anonymous: false};
+    option (google.api.http) = {
+      custom {
+        kind: "POST"
+        path: "/v1/client/credentials:check"
+      }
+    };
+    option (openapi.v3.operation) = {
+      summary: "Check client credentials"
+      operation_id: "CredentialsCheck"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Served when credentials are expired, revoked, or otherwise not valid."}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Served when credentials are present but the user does not have permission."}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Activate Credentials
+  //
+  // Executed from a CLI or other native build client, once a user has logged-in. If the user has access to multiple
+  // tenant contexts, the response presents them so the user may choose their default (as needed). API keys and other
+  // authorization material is returned here as well.
+  //
+  // The API key returned is the user's "default API key." This identifies the user account for regular cache traffic;
+  // the tenant ID may additionally be affixed to cache requests to scope to a specific tenant.
+  rpc CredentialsActivate(ClientSession) returns (ClientSessionTicket) {
+    option idempotency_level = IDEMPOTENT;
+    option (buildless.api.authz) = {allow_anonymous: false};
+    option (google.api.http) = {
+      custom {
+        kind: "POST"
+        path: "/v1/client/credentials:activate"
+      }
+    };
+    option (openapi.v3.operation) = {
+      summary: "Activate a session"
+      operation_id: "ActivateSession"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "200"
+          value {
+            response {description: "Successful response with session ticket"}
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Served when credentials are expired, revoked, or otherwise not valid."}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Served when credentials are present but the user does not have permission."}
+          }
+        }
+      }
+    };
+  }
+}
+
+// Request for authorization. Describes a request made from a Buildless API client or 3rd party client, in order to
+// establish an authorized session with Buildless.
+message AuthorizeRequest {
+  option (elide.model.role) = WIRE;
+
+  // Specifies an existing session ID which, if valid, should be resumed. If the session at the provided ID cannot be
+  // resumed, one is started fresh and a new session ID is returned.
+  string sid = 1 [(google.api.field_behavior) = OPTIONAL];
+}
+
+// Specifies a request to fetch a raw cached asset from Buildless. Raw cache fetches are used by primitive tools which
+// support a simple GET/POST interface.
+message CacheFetchRequest {
+  option (elide.model.role) = WIRE;
+
+  // Cache key to fetch, expressed as a string. For information about cache key encoding, see the Buildless docs.
+  string cache_key = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).string = {max_len: 64}
+  ];
+}
+
+// Specifies a request to persist a raw cached asset with Buildless. Raw cache persistence is used by primitive build
+// tooling which supports a simple GET/POST interface.
+message CacheStoreRequest {
+  option (elide.model.role) = WIRE;
+
+  // Cache key at which the data should be stored.
+  string cache_key = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).string = {max_len: 64}
+  ];
+
+  // Return information about the stored object.
+  bool info = 2 [(google.api.field_behavior) = OPTIONAL];
+
+  // Data to store in the cache.
+  google.api.HttpBody data = 3 [(google.api.field_behavior) = REQUIRED];
+}
+
+// Specifies response information for a cache store request. Response info is only provided to a store request if the
+// request includes the `info` flag.
+message CacheStoreResponse {
+  option (elide.model.role) = WIRE;
+
+  // Cache key at which the data was stored.
+  string key = 1;
+
+  // Size of the stored data, in bytes.
+  uint64 size = 2;
+
+  // Timestamp indicating when the data was considered committed.
+  google.protobuf.Timestamp stamp = 3;
+}
+
+// Specifies a request to delete a cached asset from Buildless at a known key. This request is used to delete a specific
+// key from the cache; to delete keys in bulk, see other delete/clear methods.
+message CacheFlushRequest {
+  option (elide.model.role) = WIRE;
+
+  // Specifies the cache key which should be flushed.
+  string cache_key = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).string = {max_len: 64}
+  ];
+}
+
+// Specifies a response to a request for current auth state. The payload communicates the active account which was
+// resolved from the request, if applicable.
+message AuthInfoResponse {
+  option (elide.model.role) = WIRE;
+
+  // Account info resulting from the auth info request.
+  buildless.Account account = 1;
+}
+
+// Defines the structure for an event which is delivered to the _Telemetry Service_. Events are mostly generic objects,
+// which may be expressed in streaming or unary form. For the latter, `fin` should be set to `true` (or, for the last
+// event in a stream).
+message Event {
+  option (elide.model.role) = EVENT;
+
+  // Specifies the collection to which this event belongs. Named event collections are used for certain types of events
+  // which are grouped together for reporting purposes.
+  string collection = 1 [
+    (google.api.field_behavior) = OPTIONAL,
+    (validate.rules).string = {
+      pattern: "^[a-zA-Z]{3,32}$"
+      min_len: 3
+      max_len: 32
+    }
+  ];
+
+  // Whether this event is a standalone event (`true`), or part of a series (`false`). Only applicable when sending
+  // streams of events.
+  bool fin = 2 [(google.api.field_behavior) = OPTIONAL];
+
+  // Index of this event within the ordinal context of all events sent for a given event stream or session. Only
+  // applicable in circumstances where events have a natural order.
+  uint32 index = 3 [(google.api.field_behavior) = OPTIONAL];
+
+  // Scope or operational context ID for this event. This value may be mixed into the event's ID and other data. This
+  // value is optional. For example, it may be filled in with a build ID in CI systems.
+  string scope = 4 [(google.api.field_behavior) = OPTIONAL];
+
+  // Specifies the payload of the event being delivered. This field is required and constitutes the actual content of
+  // the event which should be validated, enriched, and persisted.
+  buildless.telemetry.TelemetryEvent event = 5 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).message = {required: true}
+  ];
+}
+
+// Specifies a response structure for an event delivered to the _Telemetry Service_.
+message EventID {
+  option (elide.model.role) = OBJECT_KEY;
+
+  // Specifies that an event was received successfully.
+  bool ok = 1;
+
+  // Event which is being acknowledged. May only be enclosed in multiplexed circumstances.
+  string eid = 2;
+
+  // Specifies the session ID for a multi-event session. This is only populated for the response to a watermark event in
+  // a newly-established event stream.
+  string sid = 3;
+}
+
+// Checks a set of end-user credentials against the Buildless service. This request is typically submitted by client
+// agents like the Buildless CLI, or by build ecosystem plugins.
+message CredentialCheckRequest {
+  // Specifies the project ID which should be checked; optional.
+  string project = 1;
+}
+
+// Specifies a response to a request to check end-user credentials; indicates the status of the credential, along with
+// any required steps to resolve issues.
+message CredentialCheckResponse {
+  // Indicates whether the overall credential check was successful.
+  bool ok = 1;
+}
+
+// Request to activate a client-side session, by exchanging an authorized access token for a session ticket, which
+// contains activation info for the user's account.
+//
+// If information is needed which is not presented (for example, a selected context), then a response is returned which
+// indicates a partial activation, and the client should prompt the user for additional information. After this data has
+// been gathered from the user, the request should be re-submitted with the additional data.
+message ClientSession {
+  // Nonce value for this operation; must be unique for each request.
+  string nonce = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // ID token to activate a session for; the access token is set to the authorization header.
+  string token = 2 [(google.api.field_behavior) = REQUIRED];
+
+  // Client ID of the requesting application.
+  string client = 3 [(google.api.field_behavior) = REQUIRED];
+
+  // Signature from the private key present on the device, if applicable; expected to be encoded as base64.
+  string signature = 4 [(google.api.field_behavior) = REQUIRED];
+
+  // Specifies the public key which signed this request and should be bound to the client. Encoded as base64.
+  string identity = 5 [(google.api.field_behavior) = REQUIRED];
+
+  // Audience of the API under request.
+  string audience = 6 [(google.api.field_behavior) = REQUIRED];
+
+  // Device code for the authorized session, as applicable.
+  string device = 7 [(google.api.field_behavior) = OPTIONAL];
+
+  // Explicit tenant org requested for access by the user, if applicable.
+  string org = 8 [(google.api.field_behavior) = OPTIONAL];
+}
+
+// Specifies the structure of a response to activate a client session.
+message ClientSessionTicket {
+  // Specifies the contents of a successfully activated native client session.
+  message ActivatedSession {
+    // API key provided for client-side use.
+    string apikey = 1;
+
+    // If so configured (and applicable), a certificate, issued for the client's use.
+    bytes certificate = 2;
+
+    // Authorized tenant org ID, as applicable.
+    string org_id = 3;
+  }
+
+  // Models a scope which the user has access to and can pick from.
+  message AuthorizedScope {
+    // ID of the scope.
+    string id = 1;
+
+    // Label to show.
+    string label = 2;
+  }
+
+  // Specifies the contents of a partial session, which needs more information to fully activate.
+  message PartialSession {
+    // Scopes which the user can select from.
+    repeated AuthorizedScope scope = 1;
+  }
+
+  // Result of the request.
+  oneof result {
+    // Activated session which is ready for use.
+    ActivatedSession ticket = 1;
+
+    // Partial session; request for additional information.
+    PartialSession partial = 2;
+  }
+}
+
+// Specifies service capabilities for a Buildless-compliant endpoint; this includes the Buildless Service and also local
+// near cache servers.
+message ServiceCapabilities {
+  // Enumeration of capabilities that can be declared by a Buildless Protocol service.
+  enum Capability {
+    // Unknown capability; this indicates a backward-incompatible value and should not be used by code directly.
+    UNKNOWN_CAPABILITY = 0;
+  }
+
+  // Specifies combined information about a service endpoint's capabilities; capabilities may be expressed as known
+  // values from the `Capability` enumeration, or as arbitrary string `key` values.
+  message CapabilityInfo {
+    // Specifies the key for this capability.
+    oneof capability_key {
+      // Specifies a known capability key.
+      Capability known = 1;
+
+      // Specifies a custom capability key.
+      string key = 2;
+    }
+
+    // Specifies arbitrary configuration or context related to this capability; the use of this field is implementation-
+    // specific.
+    map<string, string> context = 3;
+  }
+
+  // Specifies capability info payloads for a service endpoint.
+  repeated CapabilityInfo capability = 1;
+}
+
+// Specifies information about a Buildless Protocol endpoint.
+message ServiceEndpoint {
+  // Enumerates types of endpoints which may be expressed in a build cache dynamic configuration.
+  enum EndpointType {
+    // Default endpoint type; a regular Buildless service endpoint.
+    DEFAULT = 0;
+
+    // Specifies the Buildless Cloud edge networks.
+    EDGE = 1;
+
+    // Private cloud instance.
+    DEDICATED = 2;
+
+    // Specifies a local near cache.
+    NEAR = 3;
+  }
+
+  // Whether this endpoint is up; this is only set if known by the responding service.
+  bool up = 1;
+
+  // URI for this endpoint.
+  string uri = 2;
+
+  // Cache protocol for this endpoint.
+  buildless.config.CacheProtocol protocol = 3;
+
+  // Capabilities of this endpoint.
+  ServiceCapabilities capabilities = 4;
+
+  // Weight to use when considering this endpoint; this value is merely a hint from the server.
+  uint32 priority = 5;
+
+  // Type of endpoint described by this payload.
+  EndpointType type = 6;
+
+  // Specifies arbitrary configuration or context related to this capability; the use of this field is implementation-
+  // specific.
+  map<string, string> context = 7;
+}
+
+// Specifies the structure of a request for dynamic build cache configuration.
+message CacheConfigRequest {
+  // Specifies (optional) information about the client which is being configured.
+  buildless.client.CacheClient client = 1;
+}
+
+// Specifies a response to a request for dynamic build cache configuration.
+message CacheConfigResponse {
+  // Specifies service capability support for the responding service.
+  ServiceEndpoint origin = 1;
+
+  // Known peers which the client may use, depending on capabilities.
+  repeated ServiceEndpoint peers = 2;
+}

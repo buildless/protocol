@@ -1,0 +1,248 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+/* Provides ancillary records which relate to Buildless org tenant accounts; team members, extended settings, and so on,
+ * which are not versioned.
+ *
+ * **Note:** Because common objects in Buildless' model are not versioned, records should only be placed here which
+ *           outlive individual API versions. Care must be exercised to maintain forward and backward compatibility.
+ */
+package buildless.tenant;
+
+import "buildless/authz/authz.proto";
+import "buildless/billing/plan.proto";
+import "buildless/common.proto";
+import "elide/model/model.proto";
+import "google/protobuf/timestamp.proto";
+
+option cc_enable_arenas = true;
+option go_package = "github.com/elide-dev/buildless;buildless.tenant";
+option java_multiple_files = true;
+option java_package = "cloud.elide.cache.proto.tenant";
+option java_string_check_utf8 = true;
+option optimize_for = SPEED;
+
+// ## Member Type
+//
+// Enumerates the types of team or project members which may be associated with a tenant or project.
+enum MemberType {
+  // Unspecified or unrecognized team member type; this sentinel value is used when decoding an unrecognized enumeration
+  // case, such as a backwards-incompatible value. Regular application code should not use this.
+  MEMBER_TYPE_UNSPECIFIED = 0;
+
+  // Indicates an "external" member, which is a regular individual Buildless user that has been added to an otherwise
+  // managed or secured tenant team.
+  MEMBER_EXTERNAL = 1;
+
+  // Indicates a "hybrid" member, which is an account that is *both* an individual Buildless account, *and* a managed
+  // account within the scope of a given tenant.
+  MEMBER_HYBRID = 2;
+
+  // Indicates a fully "managed" member, whose access originates from a synchronized SCIM or SSO directory. Managed team
+  // memberships are not able to be edited directly.
+  MEMBER_MANAGED = 3;
+}
+
+// ## Member Status
+//
+// Enumerates each status case which applies to a tenant or project membership.
+enum MemberStatus {
+  // Unspecified or unrecognized team member status; this sentinel value is used when decoding an unrecognized
+  // enumeration case, such as a backwards-incompatible value. Regular application code should not use this.
+  MEMBER_STATUS_UNSPECIFIED = 0;
+
+  // Indicates that a membership is currently active. In this state, any connected access rights or policies apply to
+  // operations submitted by the member against this tenant.
+  MEMBER_ACTIVE = 1;
+
+  // Indicates that a membership is currently suspended. In this state, connected access rights or policies **do not**
+  // apply, and the membership functionally does not exist. Memberships may be re-enabled (un-suspended), in which case
+  // they are set back to the `MEMBER_ACTIVE` state. Tenants are charged for suspended users.
+  MEMBER_SUSPENDED = 2;
+
+  // Indicates that a membership has been soft-deleted ("archived"). In this state, connected access rights or policies
+  // **do not** apply, and the membership functionally does not exist. Memberships may be re-enabled (un-archived), in
+  // which case they are set back to the `MEMBER_ACTIVE` state. Tenants are not charged for archived users.
+  MEMBER_ARCHIVED = 3;
+}
+
+// ## Member User Info
+//
+// Describes a user's profile from the perspective of a single tenant, and their membership in that tenant. Additional
+// properties or history may be available versus the user's global profile.
+message MemberUserInfo {
+  option (elide.model.role) = WIRE;
+
+  // Specifies the associated subject user's unique ID ("uid").
+  string uid = 1;
+
+  // Specifies the display name to use for this user.
+  string display_name = 2;
+
+  // Specifies the company (employer) to show for this user, if any.
+  string company = 3;
+
+  // Specifies the title (job role) to show for this user, if any.
+  string title = 4;
+
+  // Specifies this user's email address within the context of a given membership.
+  string email = 5;
+
+  // Specifies this user's phone number, if any.
+  string phone_number = 6;
+
+  // Indicates whether this user has verified their email address. Managed users which originate from a directory sync
+  // operation are always considered verified.
+  bool email_verified = 7;
+
+  // Indicates whether this user has verified their phone number; typically used only for individual Buildless accounts.
+  bool phone_verified = 8;
+
+  // Specifies whether this user can be removed from a given tenant context. Owner (initial admin) users cannot be
+  // removed until granting ownership to another user.
+  bool removable = 9;
+
+  // URL to a profile picture which should be used for this user within the context of this account scope.
+  string picture = 10;
+
+  // Specifies this user's username, which is typically their internal (corporate) username, or their GitHub profile,
+  // as applicable. Under the control of the user and domain admins.
+  string username = 11;
+
+  // Specifies a link to this user's profile, if any. This field is under the control of individual users and tenant
+  // admins or owners.
+  string link = 12;
+
+  // Specifies the identity provider which controls or authenticates the identity associated with the subject team
+  // member's user account.
+  buildless.AccountProvider provider = 13;
+}
+
+// ## Team Member
+//
+// Record which explains a team membership for a tenant or project. This record maps between a user and the resource to
+// which they are granted access.
+message TeamMember {
+  option (elide.model.role) = WIRE;
+
+  // Specifies the type of membership described by this record.
+  MemberType type = 1;
+
+  // Specifies the current status of this membership.
+  MemberStatus status = 2;
+
+  // Subject user's profile and information within the context of this membership.
+  MemberUserInfo profile = 3;
+
+  // Role ID/name assigned to this membership.
+  string role = 4;
+}
+
+// ## Team Licensing
+//
+// Describes current team seat usage, versus available seats. This record is only provided in administrative contexts.
+message TeamLicensing {
+  option (elide.model.role) = WIRE;
+
+  // Indicates the main subscription plan tier at which this tenant or user is subscribed.
+  buildless.billing.TenantPlan tier = 1;
+
+  // Number of seats licensed for this team.
+  uint32 seats_licensed = 2;
+
+  // Number of seats available for use on this team (typically `(seats_in_use - archived_users) - (seats_licensed)`).
+  uint32 seats_available = 3;
+
+  // Number of seats currently in use for use on this team (typically `seats_in_use - archived_users`).
+  uint32 seats_in_use = 4;
+}
+
+// ## Role Info
+//
+// Describes configuration for a single team-applicable role, which may include standard roles, or custom roles defined
+// within the scope of the applicable tenant.
+message RoleInfo {
+  // ID string for the role represented by this role info payload.
+  string role = 1;
+
+  // Short name for this role. For built-in roles, this will be a well-formed string.
+  string name = 2;
+
+  // Tenant to which this role info payload relates.
+  uint64 tenant = 3;
+
+  // Display name for this role.
+  string display_name = 4;
+
+  // Privileges granted by this role.
+  repeated buildless.authz.PrivilegeLevel privilege = 5;
+}
+
+// ## Team Roles
+//
+// Describes roles as they relate to a single tenant or project team. Roles assigned in this manner may be built-in
+// standard roles or custom roles defined within the scope of the tenant.
+message TeamRoles {
+  option (elide.model.role) = WIRE;
+
+  // Indicates whether this team is entitled to use custom roles. Typically this is only possible in enterprise tenants.
+  bool allow_custom = 1;
+
+  // Describes the roles which are in use on this team, across all member users. Roles may be standard roles which are
+  // built into the application, or custom roles added within the scope of a single tenant.
+  map<string, RoleInfo> roles = 2;
+}
+
+// ## User Sync Info
+//
+// Describes user sync status information for a given managed tenant. Managed tenants with SCIM enabled will have this
+// payload present to describe current sync status with the configured SCIM directory.
+message UserSyncInfo {
+  option (elide.model.role) = WIRE;
+
+  // Reason that user sync is currently disabled; if present, sync is disabled.
+  string disabled_reason = 1;
+
+  // ID of the main directory which is enabled for sync within a given tenant.
+  string directory_id = 2;
+
+  // Timestamp indicating the last time the directory was synchronized.
+  google.protobuf.Timestamp last_sync = 3;
+
+  // Identity or directory provider which supports the underlying team directory.
+  buildless.DirectoryProvider provider = 4;
+}
+
+// ## Team Membership
+//
+// Describes a team for a Buildless tenant or project, including the active roles in use on the team (standard or custom
+// within a tenant), the members of the team, licensing status, and sync status.
+message TeamMembership {
+  option (elide.model.role) = WIRE;
+
+  // Describes the roles which are in use on this team, across all member users. Roles may be standard roles which are
+  // built into the application, or custom roles added within the scope of a single tenant.
+  TeamRoles active_roles = 1;
+
+  // Specifies the set of team members who are constituent within this tenant. Team member records include the subject
+  // user's information, and role/access information for their membership on this team.
+  repeated TeamMember member = 2;
+
+  // Licensing information as it relates to this team. In circumstances where seating is limited, this record is present
+  // to indicate how many seats are in-use versus available to be allocated from current subscription entitlements.
+  TeamLicensing licensing = 3;
+
+  // Describes sync information for a managed team membership set. This record is present when this team represents an
+  // organization tenant which has SCIM directory sync enabled.
+  UserSyncInfo sync = 4;
+}

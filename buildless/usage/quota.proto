@@ -1,0 +1,136 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+package buildless.usage;
+
+import "buildless/billing/metering.proto";
+import "elide/model/model.proto";
+import "google/api/field_behavior.proto";
+
+// ## Quota: Effect
+//
+// Specifies the type of effect/action applied for a given quota level. At a `SOFT` quota violation, the user is
+// notified and charged for any billable overages. At a `HARD` quota violation, the user is notified and the service
+// begins to reject requests.
+enum QuotaEffect {
+  // Default value; should not be used explicitly by application code (indicates a backward-incompatible value).
+  QUOTA_POLICY_DEFAULT = 0;
+
+  // **Free quota:** The value allocated at this level is available for free, with no cost impact to the account scope
+  // responsible for such usage.
+  QUOTA_FREE = 1;
+
+  // **Billable quota:** The value allocated at this level represents the sum of *all* paid (add-on) usage entitlements
+  // and any subscription usage for the account scope responsible for such usage. Usage up to this level is billed to
+  // the account scope on an on-demand basis. Unused quota is forfeited at the end of the billing period.
+  QUOTA_BILLABLE = 2;
+
+  // **Soft quota:** The user and administrators (as applicable) are notified about a quota breach, and overages are
+  // applied to the account for any usage not otherwise entitled. In this mode, the system continues processing requests
+  // without interruption.
+  QUOTA_SOFT = 3;
+
+  // **Hard quota:** The user and administrators (as applicable) are notified about a quota breach, and the service
+  // `MAY` begin rejecting requests. In this mode, no uptime guarantees are extended to a given account scope.
+  QUOTA_HARD = 4;
+}
+
+// ## Quota: Basis
+//
+// Describes the calculation (measurement) basis for a given quota. Quotas may be enforced based on usage over a given
+// time period, or may be enforced based on the peak usage at any single moment in time.
+enum QuotaBasis {
+  // Default value; should not be used explicitly by application code (indicates a backward-incompatible value).
+  QUOTA_BASIS_DEFAULT = 0;
+
+  // **Over time:** Quotas are enforced based on the total usage over a given time period.
+  OVER_TIME = 1;
+
+  // **At any time:** Quotas are enforced based on the peak usage at any single moment in time.
+  AT_ANY_TIME = 2;
+}
+
+// ## Quota: Unit
+//
+// Specifies the unit basis for a single quota point. Quotas can be measured as a "count" of usage, as an amount of
+// bytes, or as an amount of time occupied by a given resource.
+enum QuotaUnit {
+  // Default value; should not be used explicitly by application code (indicates a backward-incompatible value).
+  QUOTA_UNIT_DEFAULT = 0;
+
+  // **Count:** Specifies an absolute count of some kind.
+  COUNT = 1;
+
+  // **Bytes:** Specifies a count of bytes.
+  BYTES = 2;
+
+  // **Time:** Specifies an amount of time.
+  TIME = 3;
+}
+
+// ## Quota: Allocation
+//
+// Specifies a quota allocation amount, which is a single stop point in a single quota policy. The stop point is either
+// a hard or soft quota limit, which is applied at the specified `allocation` point.
+message QuotaAllocation {
+  option (elide.model.role) = WIRE;
+
+  // Allocated amount of usage at which the specified `effect` is applied.
+  uint64 allocated = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Effect applied at the specified `allocation` point.
+  QuotaEffect effect = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// ## Quota: Info
+//
+// Specifies combined information about a single quota point, including a unique ID calculated for the quota, the
+// consumable measured by the quota, the current policy effect for the quota value (as applicable), and the basis and
+// unit configurations for the quota.
+message QuotaInfo {
+  option (elide.model.role) = WIRE;
+
+  // Unique ID for this quota, generated to represent the quota's configuration.
+  string id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Consumable usage point measured by this quota.
+  buildless.billing.Consumable consumable = 2;
+
+  // Quota effect currently applied for this quota, within the current account scope. If no effect is applied, then
+  // usage allocation remains for safe use by the account scope in question.
+  QuotaEffect effect = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Basis for this quota; describes the manner of calculation which is applied to understand usage against this quota.
+  QuotaBasis basis = 4;
+
+  // Unit for this quota; describes the unit of measurement (or value measured) for this quota.
+  QuotaUnit unit = 5;
+}
+
+// ## Quota: State
+//
+// Specifies current state for a single quota point, including metadata about the quota configuration and each applied
+// quota allocation which relates to the specified quota. Allocations specify free, billed, soft, and hard usage levels
+// with regard to a single account scope.
+//
+// Quota allocations can originate from baseline usage grants, from a user or tenant's subscription, or from
+// entitlements (add-ons) applied to an account.
+message QuotaState {
+  option (elide.model.role) = WIRE;
+
+  // Information about this quota point, including the current effect.
+  QuotaInfo info = 1;
+
+  // Allocations currently provided for this quota point.
+  repeated QuotaAllocation allocation = 2;
+}

@@ -1,0 +1,181 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+/**
+ * Provides API annotations and definitions which govern internal behavior of the Buildless API.
+ *
+ * These enumerations and config structures help enforce authorization policies via interceptors. Interceptors and other
+ * downstream consumers read these annotations, then enforce the policies they describe.
+ */
+package buildless.api;
+
+import "google/protobuf/descriptor.proto";
+
+option cc_enable_arenas = true;
+option go_package = "github.com/elide-dev/buildless;buildless.api";
+option java_multiple_files = true;
+option java_package = "cloud.elide.cache.proto.api";
+option java_string_check_utf8 = true;
+option optimize_for = SPEED;
+
+// ## Authorization Mode
+//
+// This enumeration describes each available mode for Buildless API authorization. API methods can be specialized for
+// end-users or tenant accounts only, in which case they are annotated with the applicable mode.
+//
+// By default, `AUTHORIZATION_DEFAULT` is set on each method, which allows any valid authorization credentials,
+// regardless of credential type.
+enum AuthorizationMode {
+  // Allow all Buildless credentials, regardless of credential type. This includes both org-level ("tenant") credentials
+  // as well as end-user credentials. If the operation is marked as "sensitive," additional credentials may be required.
+  AUTHORIZATION_DEFAULT = 0;
+
+  // Allow end-users only. In this mode, either an end-user's valid API key must be present, or a valid authorization
+  // token or session token must be present on the request. If the operation is marked as "sensitive," additional
+  // credentials may be required.
+  USERS_ONLY = 1;
+
+  // Allow tenant organizations only. In this mode, an organization-level API key must be present on the request. If
+  // the method is marked as "sensitive," additional credentials may be required. In this mode, a tenant ID is always
+  // expected to be declared.
+  TENANTS_ONLY = 2;
+}
+
+// ## Permission Level
+//
+// Describes generic permission levels which map to effective well-known roles. If a user has a role matching one of
+// these levels for a given API execution, the request is allowed to proceed.
+enum PermissionLevel {
+  // **Default permission level:** valid credentials are required, but no additional authorization checks are applied.
+  PERMISSION_LEVEL_DEFAULT = 0;
+
+  // **Read-only permission:** valid credentials are required, and the invoking principal `MUST` be authorized with at
+  // least read-only permissions for the applicable account scope in which the operation is taking place.
+  READ = 1;
+
+  // **Read-write permission:** valid credentials are required, and the invoking principal `MUST` be authorized with at
+  // least write/edit permissions for the applicable account scope in which the operation is taking place.
+  READ_WRITE = 2;
+
+  // **Delete permission:** valid credentials are required, and the invoking principal `MUST` be authorized with at
+  // least delete/destruct permissions for the applicable account scope in which the operation is taking place.
+  DELETE = 3;
+
+  // **Administrative permission:** valid credentials are required, and the invoking principal `MUST` be authorized with
+  // at least admin-level permissions for the applicable account scope in which the operation is taking place. Some org
+  // roles enable specific administrative permissions, like IT or billing access.
+  ADMIN = 4;
+
+  // **Owner permission:** valid credentials are required, and the invoking principal `MUST` be authorized with at least
+  // owner-level permissions for the applicable account scope in which the operation is taking place. This is the
+  // highest possible permission level.
+  OWNER = 5;
+}
+
+// ## Method Authorization
+//
+// Specifies authorization configuration for a given RPC method provided by a Buildless API service. Settings on this
+// configuration are enforced by interceptors on behalf of the service under invocation. Proto-methods may be annotated
+// with these settings via the `buildless.api.authz` coordinate.
+//
+// ### Anonymous Access
+//
+// If the `anonymous_access` flag is set, the method is allowed to be invoked without any credentials present at all. In
+// this case, it is up to the method implementation to enforce second-order auth. There are two application features
+// where this is useful:
+//
+// - **Open methods.** Some methods (for example, `AppInfo`) return publicly-available information, and don't need to
+//   perform authorization steps. In this context, authorization may be wasteful.
+//
+// - **Anonymous-enabled methods.** Some methods (for example, cache access) can be opened up for public access on a
+//   policy basis by authorized users. In this case, the method implementation is responsible for enforcing second-order
+//   authorization state; for example, enforcing authorization state if-and-only-if the project under access demands it.
+//
+// ### Publishable API Keys
+//
+// "Publishable" API keys are keys which are safe to publish. These keys are typically used for non-sensitive or write-
+// only operations, like telemetry submission. If the `publishable` flag is set, interceptors will allow invocations
+// which specify a publishable key. By default, publishable keys are not allowed on any method.
+//
+// ### Authorization Behavior
+//
+// After enforcing the policies defined on this record, interceptors will mount resulting credential material within the
+// execution context for the invocation. Implementations may then access these values via well-typed context keys. See
+// the `CallMetadata` file for more information.
+//
+// Guarantees provided by this implementation:
+//
+// - **Values are well-formed.** If a value is read by the interceptor at all, it is well-formed. Downstream consumers
+//   may assume that the value has been validated statically to a reasonable extent.
+//
+// - **Values are semantically valid.** If a value is read by the interceptor, it is used properly and in the right
+//   "place" (the right header, context, etc). Downstream consumers need not verify the value's use semantics.
+//
+// - **Values are verified.** At the point a method invocation begins, all relevant authorization material has already
+//   been calculated and enforced. Downstream consumers do not need to look up user or tenant records, for example, to
+//   make sure they exist.
+//
+// ### Exhaustive settings list
+//
+// - `allow_anonymous`: Allow anonymous invocations (i.e. invocations with no credentials present). **Danger:** When
+//   this option is set, authorization steps `MUST` be performed by the implementation, as applicable.
+//
+// - `allow_publishable`: Allow the use of "publishable" API keys. **Danger:** When this option is set, API keys may be
+//   used which are intended to be published. The end-client may not be an explicitly-authorized user.
+//
+// - `require_token`: Require a valid end-user authorization token, or signed session, to be present on the request. In
+//   this mode, `USER` authorization mode is implied.
+//
+// - `sensitive`: Mark the method as a "sensitive" operation. In this case, an additional authorization step may be
+//   required; in some circumstances, this may be a "sudo" upgrade of a user's session, for instance, using 2FA. In API
+//   circumstances, an additional secret-signed HMAC token may be required. Consult method documentation for more info.
+//
+// - `authorization_mode`: Governs the principal types that can invoke a given RPC method. Some methods are only able to
+//   be invoked by end-users or within an org-wide circumstance. See the `AuthorizationMode` enum for more information.
+//
+// - `require_tenant`: Require the presence of tenant authorization information on a request, regardless of the mode of
+//   the request (so, this does apply to `USER` credentials). In the case of `USER` credentials, a tenant `MAY` be
+//   specified explicitly; if none is specified, the default tenant for the user is used. If no default tenant exists
+//   for the user, an error is returned.
+//
+// - `permission`: Describes the minimum generalized permission level that is required to execute a given RPC method.
+//   The end-user invoking a request must be granted a role which corresponds *at least* with this permission. This
+//   concept only applies within the context of `USER`-type credentials.
+message MethodAuthorization {
+  // Allow anonymous invocations (i.e. invocations with no credentials present).
+  bool allow_anonymous = 1;
+
+  // Allow the use of "publishable" API keys.
+  bool allow_publishable = 2;
+
+  // Require a valid end-user authorization token, or signed session, to be present on the request.
+  bool require_token = 3;
+
+  // Mark the method as a "sensitive" operation.
+  bool sensitive = 4;
+
+  // Governs the principal types that can invoke a given RPC method.
+  AuthorizationMode mode = 5;
+
+  // Require the presence of tenant authorization information on a request, regardless of the mode of the request.
+  bool require_tenant = 6;
+
+  // Describes the minimum generalized permission level that is required to execute a given RPC method.
+  PermissionLevel permission = 7;
+}
+
+extend google.protobuf.MethodOptions {
+  // Authorization configuration for a given RPC method, as applicable. Authorization configurations declared in this
+  // manner are enforced by interceptors on behalf of services.
+  MethodAuthorization authz = 51000;
+}

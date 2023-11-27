@@ -1,0 +1,1182 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+/* # Projects API
+ *
+ * Defines the Buildless Projects Service, which offers management facilities for Buildless cache projects. Projects
+ * are an isolation mechanism and unit of organization within Buildless' data hierarchy.
+ *
+ * Projects are always owned by only one "account scope" (an individual user or org), and can optionally isolate data or
+ * share data with the main cache for the account.
+ *
+ * ## Project Visibility
+ *
+ * Projects support several "visibility" modes, which govern the default level of access granted to users of the cached
+ * data held in the project. The visibility mode is set at project creation time, and can be changed later by the owner
+ * or any authorized user.
+ *
+ * Projects can be one of the following visibility modes:
+ * - `PRIVATE`: Only the owner of the project can access the data held within it. This is the default visibility mode
+ *   for projects owned by individual users.
+ *
+ * - `INTERNAL`: All members of the owning organization can access the data held within the project. This is the default
+ *   visibility mode for projects owned by organizations.
+ *
+ * - `PUBLIC`: All users can access the data held within the project, with or without credentials. This visibility mode
+ *   behaves as either `INTERNAL` or `PRIVATE` with regard to write operations, depending on whether the project is
+ *   owned by a user or tenant org.
+ */
+package buildless.service.v1;
+
+import "buildless/common.proto";
+import "buildless/api/meta.proto";
+import "buildless/projects/project.proto";
+import "buildless/projects/project-key.proto";
+import "buildless/service/v1/query.proto";
+import "buildless/service/v1/expr.proto";
+import "google/api/annotations.proto";
+import "google/api/client.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/timestamp.proto";
+import "openapiv3/annotations.proto";
+import "validate/validate.proto";
+
+option cc_enable_arenas = true;
+option go_package = "github.com/elide-dev/buildless/service/v1;buildless_svc_v1";
+option java_multiple_files = true;
+option java_package = "cloud.elide.cache.proto.service.v1";
+option java_string_check_utf8 = true;
+option optimize_for = SPEED;
+option (openapi.v3.document) = {
+  info: {
+    title: "Buildless Projects",
+    version: "1.0.0"
+  }
+};
+
+// Defines the API surface for the Buildless Projects service.
+service Projects {
+  option (google.api.default_host) = "rpc.less.build";
+
+  // ## List Projects
+  //
+  // Retrieve a list of projects accessible to the authenticated user; this endpoint will list projects based on the
+  // current account scope and effective set of applicable policies or permissions.
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+
+    option (google.api.http) = {
+      get: "/v1/projects:list"
+      additional_bindings {
+        post: "/v1/projects:list"
+        body: "*"
+      }
+    };
+    option (openapi.v3.operation) = {
+      summary: "List projects"
+      operation_id: "ListProjects"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "200"
+          value {
+            response {
+              description: "Successful response with project list"
+            }
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Missing credentials"}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Permission denied"}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Fetch Project
+  //
+  // Retrieve a project by its assigned name or key; if the project cannot be found, return a `NOT_FOUND` error instead.
+  // This endpoint returns the full suite of information available for a project.
+  rpc FetchProject(ProjectFetchRequest) returns (ProjectFetchResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+
+    option (google.api.http) = {
+      get: "/v1/projects/{project.name}"
+
+      additional_bindings {
+        post: "/v1/projects:fetch"
+        body: "*"
+      }
+    };
+    option (openapi.v3.operation) = {
+      summary: "Fetch project"
+      operation_id: "FetchProject"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "200"
+          value {
+            response {
+              description: "Successful response with project list"
+            }
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Missing credentials"}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Permission denied"}
+          }
+        }
+        response_or_reference {
+          name: "404"
+          value {
+            response {description: "Project not found"}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Create Project: Check Name
+  //
+  // Check uniqueness of a name nominated for use with a new project. This endpoint returns a `CONFLICT` error if the
+  // name is already in use. Names obtained via the name generator can be used without additional checks.
+  rpc NewProjectNameCheck(ProjectCheckNameRequest) returns (ProjectCheckNameResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+
+    option (google.api.http) = {
+      post: "/v1/projects:checkName"
+      body: "*"
+    };
+    option (openapi.v3.operation) = {
+      summary: "Check project name"
+      operation_id: "NewProjectNameCheck"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "200"
+          value {
+            response {
+              description: "Successful response indicating a usable name"
+            }
+          }
+        }
+        response_or_reference {
+          name: "400"
+          value {
+            response {description: "Name invalid"}
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Missing credentials"}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Permission denied"}
+          }
+        }
+        response_or_reference {
+          name: "409"
+          value {
+            response {description: "Name in use or reserved"}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Create Project: Generate Name
+  //
+  // Generate another name for use with a new Buildless project. This method is only employed if the first name provided
+  // by creation advice is rejected by the user.
+  rpc NewProjectNameGenerate(ProjectGenerateNameRequest) returns (ProjectGenerateNameResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+
+    option (google.api.http) = {
+      post: "/v1/projects:generateName"
+      body: "*"
+    };
+    option (openapi.v3.operation) = {
+      summary: "Generate project name"
+      operation_id: "NewProjectNameGenerate"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "200"
+          value {
+            response {
+              description: "Successful response with a generated name"
+            }
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Missing credentials"}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Permission denied"}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Create Project: Advice
+  //
+  // Obtain server-provided advice during a project creation workflow; this includes the scopes to which the user has
+  // access to create projects, their quota status, and other information which can be used to inform the user during
+  // scope selection and project setup.
+  rpc NewProjectAdvice(ProjectCreateAdviceRequest) returns (ProjectCreateAdviceResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+
+    option (google.api.http) = {
+      post: "/v1/projects:creationAdvice"
+      body: "*"
+    };
+    option (openapi.v3.operation) = {
+      summary: "New project advice"
+      operation_id: "NewProjectAdvice"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "200"
+          value {
+            response {
+              description: "Successful response with advice about project creation"
+            }
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Missing credentials"}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Permission denied"}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Create Project
+  //
+  // Create a new Buildless cache project from scratch. The `dry` flag can be provided to execute a verification run
+  // instead of actually creating the underlying record. Once created, a finished record is returned, with an assigned
+  // key and other metadata.
+  rpc CreateProject(CreateProjectRequest) returns (CreateProjectResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+
+    option (google.api.http) = {
+      post: "/v1/projects:create"
+      body: "*"
+
+      additional_bindings {
+        post: "/v1/projects"
+        body: "*"
+      }
+    };
+    option (openapi.v3.operation) = {
+      summary: "Create project"
+      operation_id: "CreateProject"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "200"
+          value {
+            response {
+              description: "Successful response with persisted project record"
+            }
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Missing credentials"}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Permission denied"}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Update Project Settings
+  //
+  // Update the settings for a project, including, potentially, its visibility mode, isolation mode, and other metadata.
+  // This endpoint expects either delta record which only contains the updates to apply; before applying such updates,
+  // the project settings are fetched in a transaction.
+  rpc UpdateProjectSettings(UpdateProjectSettingsRequest) returns (UpdateProjectSettingsResponse) {
+    option (google.api.http) = {
+      put: "/v1/projects/{project.name}"
+      body: "*"
+    };
+    option (openapi.v3.operation) = {
+      summary: "Update project settings"
+      operation_id: "UpdateProjectSettings"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "200"
+          value {
+            response {
+              description: "Successful response with updated settings version"
+            }
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Missing credentials"}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Permission denied"}
+          }
+        }
+        response_or_reference {
+          name: "409"
+          value {
+            response {description: "Conflict with concurrent update"}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Archive Project
+  //
+  // Archive a project, which will prevent it from being used for new data, but will not delete the underlying data.
+  rpc ProjectArchive(ProjectArchiveRequest) returns (ProjectArchiveResponse) {
+    option (google.api.http) = {
+      post: "/v1/projects/{project.name}:archive"
+      body: "*"
+    };
+    option (openapi.v3.operation) = {
+      summary: "Archive project"
+      operation_id: "ProjectArchive"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "200"
+          value {
+            response {
+              description: "Successful response"
+            }
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Missing credentials"}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Permission denied"}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Delete Project
+  //
+  // Marks a project for soft-deletion. To be eligible for deletion, a project must already be in an archived state.
+  rpc ProjectDelete(ProjectDeleteRequest) returns (ProjectDeleteResponse) {
+    option (google.api.http) = {
+      delete: "/v1/projects/{project.name}"
+      body: "*"
+    };
+    option (openapi.v3.operation) = {
+      summary: "Delete project"
+      operation_id: "ProjectDelete"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "200"
+          value {
+            response {
+              description: "Successful response"
+            }
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Missing credentials"}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Permission denied"}
+          }
+        }
+      }
+    };
+  }
+}
+
+// Defines the API surface for the Buildless Project Repositories service.
+service ProjectRepositories {
+  // ## List Project Repositories
+  //
+  rpc ProjectRepositoryList(ProjectRepositoryListRequest) returns (ProjectRepositoryListResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+
+    option (google.api.http) = {
+      get: "/v1/projects/{project.name}/repositories"
+    };
+    option (openapi.v3.operation) = {
+      summary: "List project repositories"
+      operation_id: "ProjectRepositoryList"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "200"
+          value {
+            response {
+              description: "Successful response"
+            }
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Missing credentials"}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Permission denied"}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Fetch Project Repository
+  //
+  rpc ProjectRepositoryFetch(ProjectRepositoryFetchRequest) returns (ProjectRepositoryFetchResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+
+    option (google.api.http) = {
+      get: "/v1/projects/{repository.project.name}/repositories/{repository.name}"
+    };
+    option (openapi.v3.operation) = {
+      summary: "Fetch project repositorie"
+      operation_id: "ProjectRepositoryFetch"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "200"
+          value {
+            response {
+              description: "Successful response"
+            }
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Missing credentials"}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Permission denied"}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Link Project To Repository
+  //
+  rpc ProjectRepositoryLink(ProjectRepositoryLinkRequest) returns (ProjectRepositoryLinkResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+
+    option (google.api.http) = {
+      post: "/v1/projects/{repository.project.name}/repositories"
+      body: "*"
+    };
+    option (openapi.v3.operation) = {
+      summary: "Link project repository"
+      operation_id: "ProjectRepositoryLink"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "200"
+          value {
+            response {
+              description: "Successful response"
+            }
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Missing credentials"}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Permission denied"}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Update Project Repository
+  //
+  rpc ProjectRepositoryUpdate(ProjectRepositoryUpdateRequest) returns (ProjectRepositoryUpdateResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+
+    option (google.api.http) = {
+      put: "/v1/projects/{repository.project.name}/repositories/{repository.name}"
+      body: "*"
+    };
+    option (openapi.v3.operation) = {
+      summary: "Update project repository"
+      operation_id: "ProjectRepositoryUpdate"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "200"
+          value {
+            response {
+              description: "Successful response"
+            }
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Missing credentials"}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Permission denied"}
+          }
+        }
+      }
+    };
+  }
+
+  // ## Remove Project Repository
+  //
+  rpc ProjectRepositoryRemove(ProjectRepositoryRemoveRequest) returns (ProjectRepositoryRemoveResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+
+    option (google.api.http) = {
+      delete: "/v1/projects/{repository.project.name}/repositories/{repository.name}"
+    };
+    option (openapi.v3.operation) = {
+      summary: "Remove project repository"
+      operation_id: "ProjectRepositoryRemove"
+      security: {
+        additional_properties: {
+          name: "apikey"
+          value: {}
+        }
+      }
+      responses {
+        response_or_reference {
+          name: "200"
+          value {
+            response {
+              description: "Successful response"
+            }
+          }
+        }
+        response_or_reference {
+          name: "401"
+          value {
+            response {description: "Missing credentials"}
+          }
+        }
+        response_or_reference {
+          name: "403"
+          value {
+            response {description: "Permission denied"}
+          }
+        }
+      }
+    };
+  }
+}
+
+// Describes a reference to a Buildless project. This message is re-used across similar request and response messages.
+message ProjectReference {
+  // Name of the project under reference. Always required. Must be a valid project "short name," which is established at
+  // the time the project is created.
+  string name = 1 [
+    (google.api.field_behavior) = REQUIRED,
+
+    (validate.rules).string = {
+      max_len: 32,
+      pattern: '^[a-z][a-z0-9-_]{2,62}[a-z0-9]$',
+    }
+  ];
+}
+
+// ### List Projects: Request
+//
+message ListProjectsRequest {
+  // Specifies the account scopes that should be included; the special string `self` can be used to include projects
+  // owned by the current user. Other strings are expected to be tenant short names which the user has access to.
+  repeated string scope = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (google.api.field_behavior) = UNORDERED_LIST,
+
+    (validate.rules).repeated = {
+      ignore_empty: true,
+      max_items: 50,
+      min_items: 0,
+      unique: true,
+      items: {
+        string: {
+          max_len: 32,
+          pattern: '^(self|[a-z][a-z0-9-_]{2,62}[a-z0-9])$',
+        }
+      }
+    }
+  ];
+
+  // Specifies query options for the list request. This field is optional.
+  buildless.service.v1.QueryOptions query = 2 [(google.api.field_behavior) = OPTIONAL];
+
+  // Supplies an expression-based filter, using CEL (Common Expression Language).
+  buildless.service.v1.Expression expr = 3 [(google.api.field_behavior) = OPTIONAL];
+}
+
+// ### List Projects: Response
+//
+message ListProjectsResponse {
+  // Specifies metadata about the list of projects returned by the server.
+  message ProjectsListInfo {
+    // Count of projects returned in this response.
+    uint32 count = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Count of all available projects, regardless of pagination.
+    uint32 total = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Specifies the list of organizations which own projects returned by the server, and the count of each. This can be
+    // used for faceted search and other UI features. The special string `self` identifies projects owned individually
+    // by the current user, as applicable.
+    map<string, uint32> owner = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  }
+
+  // Info about the list of projects returned by the server.
+  ProjectsListInfo metadata = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies the list of projects which were returned by the server.
+  repeated buildless.projects.Project projects = 2 [
+    lazy = true,
+    (google.api.field_behavior) = OUTPUT_ONLY
+  ];
+}
+
+// ### Fetch Project: Request
+//
+message ProjectFetchRequest {
+  // Specifies the project UUID or name to be fetched. This field is required.
+  ProjectReference project = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).message.required = true
+  ];
+
+  // Specifies an (optional) mask of fields to apply to the record before returning.
+  google.protobuf.FieldMask mask = 2 [
+    (google.api.field_behavior) = OPTIONAL
+  ];
+}
+
+// ### Fetch Project: Response
+//
+message ProjectFetchResponse {
+  // Specifies the project record which was requested.
+  buildless.projects.Project project = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// ### Create Project: Request
+//
+// Specifies the structure of a request to create a new Buildless project.
+message CreateProjectRequest {
+  // Specifies that this request should not actually be persisted, but should be validated instead. This is useful for
+  // verifying that a project can be created without actually creating it, during a pre-flight step.
+  bool dry = 1 [(google.api.field_behavior) = OPTIONAL];
+
+  // Specifies the project to be created. This field is required. A "draft" project holds the fields which are required
+  // (and optional) for creating a new project. The draft project is validated before being persisted, and the resulting
+  // project is returned to the client.
+  buildless.projects.Project.Draft project = 2 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).message.required = true
+  ];
+
+  // Specifies a key which is used to de-duplicate similar requests; this is typically generated by the frontend UI or
+  // CLI for a single project creation flow. It is not required.
+  string idempotency_key = 3 [
+    (google.api.field_behavior) = OPTIONAL
+  ];
+}
+
+// ### Create Project: Response
+//
+// Specifies the structure of a response to a request to create a new Buildless project.
+message CreateProjectResponse {
+  // Specifies the project which was created, including all data provided as inputs, and any additional metadata written
+  // by the server.
+  buildless.projects.Project project = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// ### Update Project Settings: Request
+//
+// Apply an update to a project's settings, which may include its visibility mode, display name, and other settings
+// which are mutable. See the `ProjectSettings` message for more information.
+message UpdateProjectSettingsRequest {
+  // Specifies the project to be updated. This field is required.
+  ProjectReference project = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).message.required = true
+  ];
+
+  // Specifies updates to apply to the project's settings.
+  buildless.projects.Project.Settings.Update settings = 2 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).message.required = true
+  ];
+}
+
+// ### Update Project Settings: Response
+//
+// Response to a request to apply an update to project-level settings.
+message UpdateProjectSettingsResponse {
+  // Specifies the updated project key, which encloses a new version for the record.
+  buildless.projects.ProjectKey project = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// ### Create Project Advice: Request
+//
+// Specifies a request for advice to use in UI circumstances during a project creation flow. For example, this request
+// may trigger policy checks, billing/subscription checks, and other advice which can be used to inform the user about
+// which scopes are available for project creation.
+//
+// If a tenant is active within the UI or display context, the tenant ID should be provided as the `scope` field. This
+// value is used as a hint by the server.
+message ProjectCreateAdviceRequest {
+  // Specifies the active account scope to generate advice for. This field is required. The special value `self`
+  // requests advice for the current individual user account; any other value is expected to be a tenant ID.
+  string scope = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).string = {
+      max_len: 32,
+      pattern: '^(self|[a-z][a-z0-9-_]{2,31}[a-z0-9])$',
+    }
+  ];
+}
+
+// Specifies pre-generated project name information, for use at the user's discretion.
+message GeneratedProjectName {
+  // Suggested short-name for the project.
+  string name = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Suggested display-name for the project.
+  string display_name = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// ### Create Project Advice: Response
+//
+// Specifies the shape of advice provided to the frontend about available scopes for project creation, and the impact of
+// creating a project on quota.
+message ProjectCreateAdviceResponse {
+  // Specifies project scope status information.
+  message ProjectScope {
+    // Specifies the project scope name, which in this case is a tenant ID.
+    string name = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Specifies the display name for this scope.
+    string display_name = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Specifies the icon to use for this scope, if any.
+    string icon = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Specifies whether to allow the creation of projects in this scope.
+    bool allow = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Specifies the reason why project creation is not allowed, as applicable.
+    string reason = 5 [
+      (google.api.field_behavior) = OUTPUT_ONLY,
+      (google.api.field_behavior) = OPTIONAL
+    ];
+
+    // Specifies the number of projects which have been created in this scope.
+    uint32 used = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Describes availability within this scope, as relates to quota.
+    oneof availability {
+      // Specifies the total number of projects which can be created in this scope.
+      uint32 available = 8 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+      // Specifies whether there is no limit on the number of projects which can be created in this scope.
+      bool unlimited = 9 [(google.api.field_behavior) = OUTPUT_ONLY];
+    }
+  }
+
+  // Specifies project scope info for the user's individual account, as applicable.
+  ProjectScope self = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies project scope info for each eligible tenant which the user has access to, and which the user has been
+  // granted permissions to create projects in.
+  repeated ProjectScope tenant = 2 [
+    (google.api.field_behavior) = OUTPUT_ONLY,
+    (google.api.field_behavior) = UNORDERED_LIST
+  ];
+
+  // Whether to allow the creation of projects at all.
+  bool allow = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies the reason why project creation is not allowed, as applicable.
+  string reason = 4 [
+    (google.api.field_behavior) = OUTPUT_ONLY,
+    (google.api.field_behavior) = OPTIONAL
+  ];
+
+  // Suggested name for the project, generated by the server.
+  GeneratedProjectName suggested = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// ### Check Project Name: Request
+//
+// Specifies a request to check a nominated project name for uniqueness, validity, and so on, during the regular course
+// of a project creation flow, either in a UI or CLI circumstance.
+message ProjectCheckNameRequest {
+  // Specifies the ownership scope for the project; the user who is creating the project must have access to this scope,
+  // and the project name must be unique within this scope.
+  string scope = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).string = {
+      max_len: 32,
+      pattern: '^(self|[a-z][a-z0-9-_]{2,31}[a-z0-9])$',
+    }
+  ];
+
+  // Specifies the project name to be checked. This field is required.
+  string name = 2 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).string = {
+      max_len: 32,
+      pattern: '^([a-z][a-z0-9-_]{2,62}[a-z0-9])$',
+    }
+  ];
+}
+
+// ### Check Project Name: Response
+//
+// Specifies the shape of a response to a request to check a project name for validity during a project creation flow.
+message ProjectCheckNameResponse {
+  // Indicates whether the name can be used.
+  bool valid = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Provides a reason the name can't be used, if available.
+  string reason = 2 [
+    (google.api.field_behavior) = OUTPUT_ONLY,
+    (google.api.field_behavior) = OPTIONAL
+  ];
+}
+
+// ### Generate Project Name: Request
+//
+// Specifies a request to generate a project name, during the regular course of a project creation flow, either in a UI
+// or CLI circumstance.
+message ProjectGenerateNameRequest {
+  // Specifies the ownership scope for the project; the user who is creating the project must have access to this scope,
+  // and the project name must be unique within this scope.
+  string scope = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).string = {
+      max_len: 32,
+      pattern: '^(self|[a-z][a-z0-9-_]{2,31}[a-z0-9])$',
+    }
+  ];
+}
+
+// ### Generate Project Name: Response
+//
+// Specifies the shape of a response to a request to generate a project name during a project creation flow.
+message ProjectGenerateNameResponse {
+  // Generated project short name and display name, which the user can use for a Buildless project, and which has been
+  // pre-checked for uniqueness and validity.
+  GeneratedProjectName generated = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// ### Archive Project: Request
+//
+// Specifies a request to archive a project.
+message ProjectArchiveRequest {
+  // Project to be archived. This field is required.
+  ProjectReference project = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).message.required = true
+  ];
+}
+
+// ### Archive Project: Response
+//
+// Specifies a response to a request to archive a project.
+message ProjectArchiveResponse {
+  // Whether the record was archived.
+  bool archived = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// ### Delete Project: Request
+//
+// Specifies a request to delete a project. Projects can only be deleted if they are already currently archived.
+message ProjectDeleteRequest {
+  // Project to be deleted. This field is required.
+  ProjectReference project = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).message.required = true
+  ];
+}
+
+// ### Delete Project: Response
+//
+// Specifies a response to a request to delete a project.
+message ProjectDeleteResponse {
+  // Whether the record was deleted.
+  bool deleted = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Describes a reference to a Buildless project repository. This message is re-used across similar request and response
+// messages.
+message ProjectRepositoryReference {
+  // Project that owns this repository.
+  ProjectReference project = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).message.required = true
+  ];
+
+  // Name of the repository under reference. This field is always required, and is expected to be a project short-name,
+  // the value of which is set at the time of a project's creation.
+  string name = 2 [
+    (google.api.field_behavior) = REQUIRED,
+
+    (validate.rules).string = {
+      min_len: 3,
+      max_len: 64,
+      pattern: '^[a-z][a-z0-9-_/:]{2,64}[a-z0-9]$',
+    }
+  ];
+}
+
+// ### List Project Repositories: Request
+//
+// Specifies a request to list repositories which are linked to a given Buildless project.
+message ProjectRepositoryListRequest {
+  // Project to list repositories for. This field is required.
+  ProjectReference project = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).message.required = true
+  ];
+}
+
+// ### List Project Repositories: Response
+//
+// Specifies a response to a request to list repositories which are linked to a given Buildless project.
+message ProjectRepositoryListResponse {}
+
+// ### Fetch Project Repository: Request
+//
+// Specifies a request to fetch a record for a specific Buildless project repository.
+message ProjectRepositoryFetchRequest {
+  // Project repository to fetch. This field is required.
+  ProjectRepositoryReference repository = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).message.required = true
+  ];
+}
+
+// ### Fetch Project Repository: Response
+//
+// Specifies a response to a request to fetch a record for a specific Buildless project repository.
+message ProjectRepositoryFetchResponse {
+  // Specifies the requested project repository record.
+  buildless.projects.ProjectRepository repository = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// ### Link Project Repository: Request
+//
+// Specifies a request to add ("link") a repository to a Buildless project.
+message ProjectRepositoryLinkRequest {
+  // Project to list repositories for. This field is required.
+  ProjectReference project = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).message.required = true
+  ];
+
+  // Specifies the draft repository info to link to the project. This field is required.
+  buildless.projects.ProjectRepository.Draft repository = 2 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).message.required = true
+  ];
+}
+
+// ### Link Project Repository: Response
+//
+// Specifies a response to a request to add ("link") a repository to a Buildless project.
+message ProjectRepositoryLinkResponse {
+  // Specifies the full repository record which resulted from the link operation.
+  buildless.projects.ProjectRepository repository = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// ### Update Project Repository: Request
+//
+// Specifies a request to update settings or configuration for a given Buildless project repository.
+message ProjectRepositoryUpdateRequest {
+  // Project repository to update. This field is required.
+  ProjectRepositoryReference repository = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).message.required = true
+  ];
+}
+
+// ### Update Project Repository: Response
+//
+// Specifies a response to a request to update settings or configuration for a given Buildless project repository.
+message ProjectRepositoryUpdateResponse {}
+
+// ### Remove Project Repository: Request
+//
+// Specifies a request to delete ("remove") a repository from a project.
+message ProjectRepositoryRemoveRequest {
+  // Project repository to remove. This field is required.
+  ProjectRepositoryReference repository = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (validate.rules).message.required = true
+  ];
+}
+
+// ### Remove Project Repository: Response
+//
+// Specifies a response to a request to delete ("remove") a repository from a project.
+message ProjectRepositoryRemoveResponse {
+  // Whether the repository was removed.
+  bool removed = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+}

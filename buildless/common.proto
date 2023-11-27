@@ -1,0 +1,511 @@
+// Copyright 2023 Elide Ventures LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+
+syntax = "proto3";
+
+/* Provides common records, enumerations, and definitions for the Buildless application. These objects are used in the
+ * Buildless API and the Buildless UI.
+ *
+ * **Note:** Because common objects in Buildless' model are not versioned, records should only be placed here which
+ *           outlive individual API versions. Care must be exercised to maintain forward and backward compatibility.
+ */
+package buildless;
+
+import "buildless/billing/plan.proto";
+import "buildless/code/repo.proto";
+import "elide/model/model.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/timestamp.proto";
+import "google/type/color.proto";
+import "validate/validate.proto";
+
+option cc_enable_arenas = true;
+option go_package = "github.com/elide-dev/buildless;buildless";
+option java_multiple_files = true;
+option java_package = "cloud.elide.cache.proto";
+option java_string_check_utf8 = true;
+option optimize_for = SPEED;
+
+// ## Namespace
+//
+// Defines known/available service namespaces, such as staging and development. These are not typically user-facing, but
+// may be exposed via some APIs for use in testing and development.
+enum Namespace {
+  // Default or unset namespace value.
+  DEFAULT_NAMESPACE = 0;
+
+  // Development and testing.
+  DEV = 1;
+
+  // Staging.
+  STAGE = 49;
+
+  // Live environments.
+  LIVE = 99;
+}
+
+// ## Tenant
+//
+// Specifies an organization tenant record within Buildless. Organization tenants are the top-most level of user data
+// within the system. All user accounts are eligible to be members of a given tenant.
+//
+// Each tenant (also known as an "organization" or "team") has a unique set of identifiers, and within the scope of that
+// tenant, all organization data is owned. If a tenant is deactivated, all resources associated with that tenant are
+// henceforth inaccessible, and later scheduled for deletion. Settings, permissions, and analytics all roll up at the
+// top-most level of a tenant.
+//
+// See also: `User`, `Account`.
+message Tenant {
+  option (elide.model.role) = OBJECT;
+  option (elide.model.db).path = "orgs";
+
+  // ## Tenant Key
+  //
+  // Specifies the unique key material associated with a Buildless `Tenant` record. Tenants are stored by their numeric
+  // `tenant_id` and `uuid`, both of which must be globally unique.
+  message TenantKey {
+    option (elide.model.role) = OBJECT_KEY;
+
+    // Specifies a unique number for the tenant, which is generated at the time the tenant is first stored with
+    // Buildless. The tenant ID is considered an opaque value and should not be inspected. Globally unique.
+    uint64 tenant_id = 1 [
+      (google.api.field_behavior) = IMMUTABLE,
+      (google.api.field_behavior) = OUTPUT_ONLY,
+      (elide.model.field) = {
+        type: ID,
+        immutable: true
+      }
+    ];
+  }
+
+  // ### Tenant Branding
+  //
+  // Specifies customization/branding info for a given tenant. If supported, this information is used to customize the
+  // UI for members of a given tenant.
+  message TenantBranding {
+    option (elide.model.role) = WIRE;
+
+    // #### Tenant: Color Scheme
+    //
+    // Specifies a `primary` and `secondary` color, typically in hex. The primary and secondary colors for a given color
+    // scheme are applied either in `dark` or `light` mode.
+    message TenantColors {
+      // Primary color value, expressed as a CSS-compatible color value.
+      google.type.Color primary = 1;
+
+      // Secondary color value, expressed as a CSS-compatible color value.
+      google.type.Color secondary = 2;
+    }
+
+    // Specifies an icon URL to use for this tenant branding payload. The icon URL is used as the favicon, and in other
+    // circumstances where a square graphic is needed.
+    string icon = 1 [
+      (google.api.field_behavior) = OPTIONAL,
+      (validate.rules).string = {uri: true}
+    ];
+
+    // Specifies a logo URL to use for this tenant branding payload. The logo URL is used in the header, and in other
+    // circumstances where a wide graphic is needed.
+    string logo = 2 [
+      (google.api.field_behavior) = OPTIONAL,
+      (validate.rules).string = {uri: true}
+    ];
+
+    // Color scheme to use for this tenant when the `light` theme is active. If not present, default colors are used.
+    TenantColors light = 3 [(google.api.field_behavior) = OPTIONAL];
+
+    // Color scheme to use for this tenant when the `dark` theme is active. If not present, default colors are used.
+    TenantColors dark = 4 [(google.api.field_behavior) = OPTIONAL];
+  }
+
+  // ### Tenant Domain
+  //
+  // Specifies a custom tenant domain which is attached to Buildless services. Domains attached in this manner must be
+  // licensed on an individual basis. Some plans may include an amount of custom domains.
+  message TenantDomain {
+    option (elide.model.role) = WIRE;
+
+    // Specifies the domain value to be linked.
+    string domain = 1 [
+      (google.api.field_behavior) = REQUIRED,
+      (validate.rules).string = {hostname: true}
+    ];
+
+    // Specifies whether this domain has completed verification.
+    bool verified = 2;
+
+    // Specifies whether the domain is actively routing.
+    bool active = 3;
+  }
+
+  // Specifies the record key for this tenant, which includes all components of the tenant's primary key.
+  TenantKey key = 1 [
+    (google.api.field_behavior) = IMMUTABLE,
+    (google.api.field_behavior) = OUTPUT_ONLY,
+    (elide.model.field).type = KEY
+  ];
+
+  // Specifies a unique ID for the tenant which is not shared publicly. This tenant UUID value is used to tie a tenant
+  // record to external management and billing systems. The Tenant UUID is not sensitive, but is considered internal.
+  // The Tenant UUID is globally unique.
+  string uuid = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Short-name for this tenant, which should be a string of length 2-32 characters. The name is also referred to as the
+  // "short name." This name is used in sub-domains, so it must be a DNS-compatible name. Globally unique.
+  string name = 3 [
+    (google.api.field_behavior) = IMMUTABLE,
+    (validate.rules).string = {
+      pattern: "^[a-zA-Z]{1}[a-zA-Z0-9_-]{2,31}$",
+      max_len: 32
+    }
+  ];
+
+  // Display name for this tenant. Can be any string value between 2-32 characters. The label is shown in user-facing
+  // interfaces to identify a given tenant account.
+  string display_name = 4 [(validate.rules).string = {
+    pattern: "^[a-zA-Z0-9 _:#]{2,32}$",
+    max_len: 32
+  }];
+
+  // Whether this account is considered active. If an account is inactive, users and resources associated with the
+  // tenant are not accessible. Inactive accounts are scheduled for deletion after a period of time.
+  bool active = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Customizes the Buildless UI with tenant colors, logos, icons, and so on. Optional. Only present for tenants which
+  // have a supporting plan and choose to customize branding.
+  TenantBranding branding = 6 [(google.api.field_behavior) = OPTIONAL];
+
+  // Specifies custom domains which are linked to this tenant. These records are only present if the tenant has chosen
+  // to link domains, and if their plan supports it.
+  repeated TenantDomain domain = 7 [(elide.model.collection).mode = COLLECTION];
+
+  // Plan info for this tenant, indicating their main subscription level and additional add-on entitlements, if any.
+  buildless.billing.TenantPlanInfo plan = 8 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies the linked authorization tenant for this org tenant record. The authorization tenant holds users and
+  // roles for a given tenant record.
+  string auth_id = 9 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies the main repository provider for this tenant. This is mostly a cosmetic setting, but it also governs
+  // which repositories are shown by default as options to add in the UI.
+  buildless.code.RepositoryProvider repo_provider = 10;
+
+  // Specifies the name of the organization in the context of their repository provider (for example, their GitHub org
+  // name). This is both used cosmetically in the UI and used as a hint for repository discovery.
+  string repo_provider_org = 11 [(validate.rules).string = {
+    pattern: "^[a-zA-Z0-9 _-]{2,31}$",
+    max_len: 32
+  }];
+
+  // Flipped to `true` if an organization is scheduled for deletion, or if it has been suspended due to lack of payment
+  // or other administrative action. In this case, `active` will be set to `false`.
+  bool suspended = 12 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies this organization's ID for use with directory integrations; specifically, this ID is used for live sync
+  // of users, groups, and roles. Other features such as Log Streaming may also leverage this ID.
+  string directory_org_live = 13 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies this organization's ID for use with directory integrations; specifically, this ID is used for sandbox
+  // sync of users, groups, and roles (see `directory_org_live` for production use). Other features such as Log
+  // Streaming may also leverage this ID.
+  string directory_org_sandbox = 14 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // ID generated for this tenant's active subscription by the billing system. This ID is always present for active
+  // (non-suspended) tenants.
+  string subscription_id = 15 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Locale to default to for users who are managed by this tenant, and for tenant-level settings, UI, and operations.
+  string locale = 16 [(google.api.field_behavior) = OPTIONAL];
+
+  // Timezone to default to for users who are managed by this tenant, and for tenant-level settings, UI, and operations.
+  string timezone = 17 [(google.api.field_behavior) = OPTIONAL];
+
+  // Timestamp indicating when this record was last updated. Any update to the tenant results in an update to this
+  // timestamp field. At first creation, this value should be equal to the value held by `created_at`.
+  google.protobuf.Timestamp updated_at = 98 [(elide.model.field).stamp_update = true];
+
+  // Timestamp indicating when this record was created. Any update to the tenant results in an update to this timestamp
+  // field. This value is populated if a record has been stored, and is empty if a record has not yet been stored.
+  google.protobuf.Timestamp created_at = 99 [(elide.model.field).stamp_create = true];
+}
+
+// ## Directory Provider
+//
+// Enumerates known providers which can be installed as a SCIM-based managed directory. Providers in this enumerate are
+// generally also identity providers, in addition to directory providers.
+enum DirectoryProvider {
+  // Specifies an unknown or unrecognized directory provider; this value should not be used by regular application code,
+  // and typically signifies a backwards-incompatible value.
+  DIRECTORY_PROVIDER_UNKNOWN = 0;
+
+  // Specifies Google Workspace as a directory provider.
+  GOOGLE_WORKSPACE = 1;
+
+  // Specifies Microsoft Azure AD as a directory provider.
+  AZURE_AD = 2;
+
+  // Specifies Okta as a directory provider.
+  OKTA = 3;
+
+  // Specifies OneLogin as a directory provider.
+  ONELOGIN = 4;
+
+  // Specifies Ping Identity as a directory provider.
+  PING_IDENTITY = 5;
+}
+
+// ## Account Provider
+//
+// Specifies identity or account providers which are integrated with Buildless. A user's primary identity originates
+// from one of these providers in every case.
+enum AccountProvider {
+  // Specifies an unknown, or unrecognized, account or identity provider. This value indicates a backwards-incompatible
+  // enumerated option and should not be used directly by code. Often, passing this value may result in an error.
+  PROVIDER_UNKNOWN = 0;
+
+  // Specifies an account managed directly by Buildless. This account provider type covers email and phone-based
+  // accounts, as well as enterprise account root users.
+  IN_HOUSE = 1;
+
+  // Specifies an account which is managed by Google, as a consumer account. This usually indicates an individual who
+  // has created a Buildless account through their Google account.
+  GOOGLE = 2;
+
+  // Specifies an account which is managed by GitHub, as a consumer account. This usually indicates a Marketplace Plan
+  // enrollment from an individual GitHub account.
+  GITHUB = 3;
+
+  // Specifies an account which is managed by Atlassian, as a consumer account. This usually indicates a Marketplace
+  // Plan enrollment from an individual BitBucket account.
+  ATLASSIAN = 4;
+
+  // Specifies an account which is managed by Microsoft, as a consumer account. This usually indicates a Microsoft
+  // user who has enrolled for a Buildless individual account.
+  MICROSOFT = 5;
+
+  // Specifies an Enterprise directory account. Enterprise accounts are usually managed through SCIM, and originate
+  // from an enterprise identity provider.
+  DIRECTORY = 6;
+}
+
+// ## User
+//
+// Specifies the structure of a user record within Buildless. Users are free-agent records which do not have any parent
+// record associated with them by default. Users may be members of one or more `Tenant` organizations, but also may not
+// be a member of any `Tenant`.
+//
+// Users are one kind of `Account` within Buildless, with the other being a `Tenant`. Anybody who logs into Buildless
+// gets a user record.
+message User {
+  option (elide.model.role) = OBJECT;
+
+  // ### User Key
+  //
+  // Specifies the primary key structure for a Buildless user account. Buildless users are identified by their `uid`
+  // field, which is generated at the time their account is created.
+  message UserKey {
+    option (elide.model.role) = OBJECT_KEY;
+
+    // Specifies a unique text ID which identifies this user globally. This value is generated by the auth engine used
+    // by Buildless and is considered immutable for the entire lifecycle of a user account. The ID mentions the identity
+    // provider which was used to establish the account, and is enforced for global uniqueness.
+    string uid = 1 [
+      (google.api.field_behavior) = IMMUTABLE,
+      (google.api.field_behavior) = OUTPUT_ONLY,
+      (elide.model.field) = {
+        type: ID,
+        immutable: true
+      },
+      (validate.rules).string = {max_len: 128}
+    ];
+  }
+
+  // ### Email Address
+  //
+  // Specifies an email address which is linked to a `User` account. Users may have exactly one `EmailAddress` record
+  // which is marked `primary`. It is required that the `primary` address is also `verified`.
+  message EmailAddress {
+    option (elide.model.role) = WIRE;
+
+    // Email address associated with a user account.
+    string address = 1 [
+      (google.api.field_behavior) = IMMUTABLE,
+      (validate.rules).string = {email: true}
+    ];
+
+    // Whether this email address is the "primary" email address for the user. Only one `EmailAddress` may be marked as
+    // `primary` at any given time, within the scope of a given `User`.
+    bool primary = 2;
+
+    // Whether this email address has been verified. Verification occurs when an email address is linked to an account,
+    // and involves either clicking a link or providing a code from an email sent to the address.
+    bool verified = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  }
+
+  // ### Name
+  //
+  // Describes a person's name, including their given and family names, and a display name. The display name is rendered
+  // from the given and family names, as applicable, at user creation time. The user may then adjust the display name
+  // from their profile page.
+  message Name {
+    option (elide.model.role) = WIRE;
+
+    // Given name of the user, also known as the user's "first" name.
+    string given = 1 [(google.api.field_behavior) = REQUIRED];
+
+    // Family name of the user, also known as the user's "last" name.
+    string family = 2 [(google.api.field_behavior) = REQUIRED];
+
+    // Rendered display name for this user, which should be used in UI circumstances.
+    string display = 3 [(google.api.field_behavior) = REQUIRED];
+  }
+
+  // Specifies a unique text ID which identifies this user globally. This value is generated by the auth engine used by
+  // Buildless and is considered immutable for the entire lifecycle of a user account. The ID mentions the identity
+  // provider which was used to establish the account, and is enforced for global uniqueness.
+  UserKey key = 1 [(elide.model.field).type = KEY];
+
+  // Specifies this user's display username, which may be changed by the user or populated from source control platforms
+  // such as GitHub. This value is not guaranteed to be globally unique, and must consist of only alphanumeric
+  // characters, with a length between 2-32 characters.
+  string username = 2 [(google.api.field_behavior) = OPTIONAL];
+
+  // Specifies naming information for this user, including their given name, family name, and display name. The display
+  // name should be used in UI circumstances. In some contexts, only the display name may be returned.
+  Name name = 3;
+
+  // Specifies the email addresses linked to this user's account. Each email address is expressed, along with that
+  // address' `primary` or `verified` status. Only one email address may be marked as `primary`. Primary email entries
+  // must be `verified`. All user accounts require at least one `primary` email address at this time.
+  repeated EmailAddress email = 4;
+
+  // Plan info for this individual account, as applicable, indicating their main subscription level and additional
+  // add-on entitlements, if any.
+  buildless.billing.IndividualPlanInfo plan = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Phone number for this user, if known and if provided. This number may be used for urgent SMS communications, such
+  // as 2FA verifications at login.
+  string phone_number = 6 [(google.api.field_behavior) = OPTIONAL];
+
+  // Indicates whether the user has verified their phone number, via a one-time SMS message.
+  bool phone_verified = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies the host or provider of this account. This value indicates the provider for the main account identity,
+  // and may not represent the full set of providers for the user.
+  AccountProvider provider = 8 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies a link to the user's avatar, or profile picture. This value is optional and may be null.
+  string picture = 9 [(google.api.field_behavior) = OPTIONAL];
+
+  // Specifies a link to this user's profile, if available. This is often the user's social or GitHub profile, but may
+  // also be a work-related link for Enterprise users, like to their Slack profile.
+  string link = 10 [(google.api.field_behavior) = OPTIONAL];
+
+  // Specifies whether this user is managed by an enterprise directory.
+  bool managed = 11 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies whether this user account is suspended from access.
+  bool suspended = 12 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Specifies whether this user account is "active." This field summarizes all relevant inputs, such as the `suspended`
+  // field. If `false`, the user account is considered "inactive" and will be denied access to all resources.
+  bool active = 13 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Flipped to `true` if an organization admin archives a managed account. Only applicable if `managed` is active for a
+  // given user profile and license seat.
+  bool archived = 14 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Default tenant name which this user has elected to show upon log-in. The active tenant can be changed via the UI,
+  // so this is merely a hint about which tenant to select first if the user has access to multiple tenants.
+  string default_tenant = 15 [(google.api.field_behavior) = OPTIONAL];
+
+  // ID generated for this user's active individual subscription by the billing system. This ID is only present for
+  // active (non-suspended) accounts which have an individual subscription plan. Managed and tenant-associated users do
+  // not have a value present in this field.
+  string subscription_id = 16 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Locale override for this user. This value replaces whatever default is set for the tenant. If no value is present,
+  // a value is resolved from the session; failing that, the value `en-US` is used by default.
+  string locale = 17 [(google.api.field_behavior) = OPTIONAL];
+
+  // Timezone override for this user. This value replaces whatever default is set for the tenant. If no value is
+  // present, a value is resolved from the session; failing that, the value `UTC` is used by default.
+  string timezone = 18 [(google.api.field_behavior) = OPTIONAL];
+
+  // Timestamp indicating when this record was last updated. Any update to the tenant results in an update to this
+  // timestamp field. At first creation, this value should be equal to the value held by `created_at`.
+  google.protobuf.Timestamp updated_at = 98 [(elide.model.field).stamp_update = true];
+
+  // Timestamp indicating when this record was created. Any update to the tenant results in an update to this timestamp
+  // field. This value is populated if a record has been stored, and is empty if a record has not yet been stored.
+  google.protobuf.Timestamp created_at = 99 [(elide.model.field).stamp_create = true];
+}
+
+// ## Account
+//
+// Specifies the abstract notion of an account record within Buildless. Accounts are generic records which encompass the
+// dual concepts of a `User` and a `Tenant`. `User` accounts are accounts for individual human beings, whereas `Tenant`
+// accounts are accounts for companies, teams, or other groups of human beings.
+//
+// Because a `Tenant` or `User` may need to be referenced in generic terms, an account record exists to represent either
+// as a value in a broader object.
+message Account {
+  option (elide.model.role) = WIRE;
+
+  // Specifies a user account within the context of an `Account` record. In some contexts, the user may be operating
+  // within the scope of a specific `Tenant`, in which case it may be included here.
+  message UserAccount {
+    // Specifies the tenant account which this `profile` is operating under, as applicable.
+    Tenant tenant = 1;
+
+    // Specifies the user profile associated with this `Account` record.
+    User profile = 2;
+  }
+
+  // Specifies the account carried or referenced by this record.
+  oneof account {
+    // Specifies a user account, potentially with a `Tenant` account in which the user is operating.
+    UserAccount user = 1;
+
+    // Specifies a tenant account.
+    Tenant tenant = 2;
+  }
+}
+
+// ## Version
+//
+// Specifies generic versioning information, in the style of Semantic Versioning or in a string.
+message Version {
+  option (elide.model.role) = WIRE;
+
+  // ### Semantic Version
+  //
+  // Specifies a "semver"-style version, with major, minor, and patch components.
+  message SemanticVersion {
+    // The major version, e.g 10 for the value 10.2.3.
+    uint32 major = 1 [(google.api.field_behavior) = REQUIRED];
+
+    // The minor version, e.g. 2 for the value 10.2.3.
+    uint32 minor = 2;
+
+    // The patch version, e.g 3 for the value 10.2.3.
+    uint32 patch = 3;
+  }
+
+  // Specifies the version value enclosed within this record, either as a structured version or string version.
+  oneof value {
+    // Semantic version, structurally expressed as numeric components.
+    SemanticVersion semver = 1;
+
+    // Arbitrary version string.
+    string text = 2;
+  }
+}
